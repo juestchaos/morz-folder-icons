@@ -116,13 +116,13 @@
 | `icon-128.png` | 128×128 成品，用于插件索引的 `icon` 字段（市场按 24px 显示） |
 
 取色：底 `#4c6ef5 → #1e3a8a`（150° 渐变），文件夹 `#ffffff`，sparkle `#fbbf24`。
-`manifest.json` 本身没有 icon 字段（官方字段表：`id/name/version/description/author/sdk/main/permissions`），
-商店图标走索引条目的 `icon`；16–24px 下仍可辨识的是"文件夹 + 一点亮色"，所以没做细节纹理。
+16–24px 下仍可辨识的是"文件夹 + 一点亮色"，所以没做细节纹理。
 
-**设置里的「第三方插件」列表不显示这个图标，也显示不了。** 官方文档里插件列表只描述
-Beta 徽章、性能停用徽章，没有任何图标位；manifest 也没有 `icon` 字段。`icon` 只存在于
-**插件索引条目**（市场卡片按 24px 显示）。这是宿主的缺口，不是文件没放对——
-`icon.svg` / `icon-128.png` 已经和 `main.js` 放在同一目录，随时可用。
+`manifest.json` 的 `icon` 指向 `icon-128.svg`（官方发布规范：`icon` 为市场卡片图标，128×128 推荐、列表按 24px 显示）。
+
+**已安装插件列表不显示这个图标。** 官方文档里该列表只描述 Beta 徽章、性能停用徽章，没有图标位；
+`icon` 的文档定位是市场卡片。也就是说图标在**市场里**可见，在**本地已安装列表**里不可见——
+文件位置没问题，`icon.svg` / `icon-128.png` 一直和 `main.js` 同目录。
 
 插件**内部**的图标位（视图 tab、文件树右键菜单）只接受内置/Lucide 名，不能传自定义 SVG，
 所以那里用的是同语义的 `folder-cog` / `folder-x` / `folder-tree`。
@@ -148,7 +148,7 @@ Beta 徽章、性能停用徽章，没有任何图标位；manifest 也没有 `i
 ## 开发
 
 ```
-folder-icons/
+morz-folder-icons/
 ├── manifest.json
 ├── main.js              # 构建产物（安装只需这个 + manifest）
 ├── build.js             # 合并图标数据与业务代码

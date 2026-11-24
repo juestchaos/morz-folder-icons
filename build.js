@@ -18,9 +18,8 @@ const icons = read('src/lucide-icons.json');
 const alias = read('src/zh-aliases.json');
 const app = read('src/app.js');
 
-const stamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
-const header =
-  '/*! ' + manifest.name + ' v' + manifest.version + ' — built ' + stamp + ' */\n';
+// header 不含构建时间：同版本同代码必须产出同一字节，否则 sha256 不可复现
+const header = '/*! ' + manifest.name + ' v' + manifest.version + ' */\n';
 
 // 图标数据作为只读全局注入；业务代码包进 IIFE，避免污染宿主全局
 const out =

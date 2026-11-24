@@ -1,29 +1,48 @@
 # 发布到 Morz 插件市场
 
+## 发布状态：已上架（待扫描收录）
+
+| 项 | 结果 |
+|---|---|
+| 仓库 | https://github.com/juestchaos/morz-folder-icons （public） |
+| 分支 / Tag | `main` / `v1.0.0`（annotated，与 `manifest.version` 一致） |
+| Release | https://github.com/juestchaos/morz-folder-icons/releases/tag/v1.0.0 |
+| Topic | `morz-plugin`（另有 `morz`、`markdown`、`productivity`） |
+| 字节校验 | tag 内 `main.js` 381358 B、`manifest.json` 388 B，与本地 sha256 一致 |
+| 作者 / 本地目录 | `pkmer` / `morz-folder-icons` |
+| 待完成 | 官方扫描器每日 03:00 UTC 收录，最长约 24h 后出现在插件市场 |
+
+自测安装：Morz → 设置 → 第三方插件 → **从仓库安装…** → 输入 `juestchaos/morz-folder-icons`。
+
+一键发布脚本见 `publish-remote.sh`（读取 `../.github-token`，push 用 `http.extraheader` 注入凭据，token 不进 remote URL）。
+
+---
+
 Morz 用 **DSH 自发布**模式：作者给 GitHub 仓库打 topic 标签即可上架，**无需 PR、无需排队审核**。
 官方扫描器每天 03:00 UTC 扫一遍 GitHub，通过确定性校验的仓库自动进入社区索引。
 
 ## 一、发布前必改
 
-| 项 | 当前值 | 必须改成 |
+| 项 | 当时的值 | 现在 |
 |---|---|---|
-| `manifest.json` 的 `author` | `"local"` | 你的名字或 GitHub id（市场卡片会显示） |
-| GitHub 仓库名 | — | 建议 `folder-icons`，`manifest.id` 不用改 |
+| `manifest.json` 的 `author` | `"local"` | ✅ `"pkmer"` |
+| GitHub 仓库名 | — | ✅ `morz-folder-icons`（本地目录已同名） |
+| `manifest.id` | `folder-icons` | 保持不动——它是市场主键，改了等于换一个插件，已装用户的配置会失联 |
 
 ## 二、三步上架
 
 ```bash
-cd folder-icons
+cd morz-folder-icons
 
 # 1) 推仓库：manifest.json + main.js 必须在仓库根目录
 git init
 git add manifest.json main.js icon-128.svg icon.svg icon-128.png README.md
-git commit -m "folder-icons v1.0.0"
-git remote add origin https://github.com/<你的账号>/folder-icons.git
+git commit -m "morz-folder-icons v1.0.0"
+git remote add origin https://github.com/<你的账号>/morz-folder-icons.git
 git push -u origin main
 
 # 2) 打 tag（必须 v 开头，且与 manifest.version 完全一致）+ 发 Release
-git tag v1.0.0
+git tag -a v1.0.0 -m "morz-folder-icons v1.0.0"
 git push origin v1.0.0
 gh release create v1.0.0 --title "v1.0.0" --notes "首个版本：文件树文件夹图标、图标搜索、名称规则"
 

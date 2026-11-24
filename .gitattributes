@@ -1,0 +1,4 @@
+# 统一行尾，保证跨平台 sha256 一致（客户端安装时逐字节校验）
+* text=auto eol=lf
+*.png binary
+*.jpg binary

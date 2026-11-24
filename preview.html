@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>文件夹图标插件 · 交互预览</title>
+<style>
+  :root{
+    --bg:#1b1b1d; --panel:#232326; --panel2:#2a2a2e; --line:#37373c;
+    --text:#d8d8dc; --dim:#8b8b93; --primary:#60a5fa; --hover:rgba(255,255,255,.07);
+    /* 映射给插件用的主题变量 */
+    --text-color:#d8d8dc; --ui-bg:#2a2a2e; --ui-hover:rgba(255,255,255,.07);
+    --background-modifier-border:#37373c; --primary-color:#60a5fa;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg);color:var(--text);
+    font:13px/1.55 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    display:flex;flex-direction:column;
+  }
+  .bar{
+    display:flex;align-items:center;gap:10px;padding:8px 14px;
+    border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap;
+  }
+  .bar .t{font-weight:600;font-size:13px}
+  .bar .tag{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:99px;padding:1px 8px}
+  .bar .sp{flex:1}
+  .bar button{
+    background:none;border:1px solid var(--line);color:var(--text);
+    padding:4px 10px;border-radius:6px;cursor:pointer;font:inherit;font-size:12px;
+  }
+  .bar button:hover{background:var(--hover)}
+  .app{flex:1;min-height:0;display:flex}
+  .side{
+    width:250px;flex:none;border-right:1px solid var(--line);background:var(--panel);
+    display:flex;flex-direction:column;min-height:0;
+  }
+  .side h4{
+    margin:0;padding:9px 14px 7px;font-size:11px;font-weight:600;
+    letter-spacing:.06em;color:var(--dim);text-transform:uppercase;
+  }
+  .tree{overflow:auto;padding:0 6px 10px;flex:1}
+  .row{
+    display:flex;align-items:center;gap:6px;height:26px;padding:0 6px;
+    border-radius:5px;cursor:pointer;user-select:none;position:relative;
+  }
+  .row:hover{background:var(--hover)}
+  .row .ic{display:flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none;color:var(--dim)}
+  .row.folder .ic{color:var(--primary)}
+  .row .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .badge{
+    font-size:9px;line-height:1;color:var(--primary);border:1px solid currentColor;
+    border-radius:3px;padding:1px 3px;
+  }
+  .row .hint{margin-left:auto;font-size:10px;color:var(--dim);opacity:0;transition:.12s}
+  .row:hover .hint{opacity:1}
+  .row.lv2{padding-left:20px}
+  .row.file .ic{color:var(--dim)}
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg)}
+  #view{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  .placeholder{
+    flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:8px;color:var(--dim);font-size:12px;text-align:center;padding:30px;
+  }
+  .placeholder kbd{
+    background:var(--panel2);border:1px solid var(--line);border-radius:4px;
+    padding:1px 6px;font-size:11px;font-family:inherit;
+  }
+  .status{
+    display:flex;align-items:center;gap:14px;padding:4px 14px;
+    border-top:1px solid var(--line);background:var(--panel);font-size:11px;color:var(--dim);
+  }
+  .status .item{cursor:pointer}
+  .status .item:hover{color:var(--text)}
+
+  /* 右键菜单 */
+  .menu{
+    position:fixed;z-index:50;min-width:186px;background:var(--panel2);
+    border:1px solid var(--line);border-radius:8px;padding:4px;
+    box-shadow:0 12px 32px rgba(0,0,0,.5);display:none;
+  }
+  .menu.on{display:block}
+  .menu .mi{
+    display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:5px;
+    cursor:pointer;font-size:12.5px;white-space:nowrap;
+  }
+  .menu .mi:hover{background:var(--hover)}
+  .menu .mi.dim{color:var(--dim);cursor:default}
+  .menu .sep{height:1px;background:var(--line);margin:4px 6px}
+  .menu .sub{font-size:11px;color:var(--dim);padding:2px 10px 4px}
+
+  #toast{
+    position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;
+    z-index:60;pointer-events:none;
+  }
+  #toast .tst{
+    background:var(--panel2);border:1px solid var(--line);border-left:2px solid var(--primary);
+    padding:8px 14px;border-radius:6px;font-size:12.5px;box-shadow:0 8px 24px rgba(0,0,0,.45);
+    animation:in .18s ease;max-width:340px;
+  }
+  @keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <span class="t">文件夹图标</span>
+  <span class="tag">交互预览 · 真实插件代码</span>
+  <span class="sp"></span>
+  <button id="btnDefault">切换全局默认图标</button>
+  <button id="btnReset">重置配置</button>
+</div>
+
+<div class="app">
+  <aside class="side">
+    <h4>文件</h4>
+    <div class="tree" id="tree"></div>
+  </aside>
+  <main class="main">
+    <div id="view">
+      <div class="placeholder">
+        <div>右键左侧任意文件夹 → 插件 → 设置文件夹图标…</div>
+        <div>或点击底部状态栏条目打开总览</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="status" id="status"></div>
+
+<div class="menu" id="menu"></div>
+<div id="toast"></div>
+
+<script>var module = { exports: {} };</script>
+<script src="main.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  const store = {};
+  const caps = { deco: null, menus: [], views: null, schema: null, status: [] };
+  let settingsChanged = null;
+
+  /* ---------- mock ctx ---------- */
+  const ctx = {
+    lifecycle: { onUnload() {} },
+    storage: {
+      async get(k) { return store[k]; },
+      async set(k, v) { store[k] = JSON.parse(JSON.stringify(v)); },
+    },
+    settings: {
+      async get() { return store.__s || { defaultIcon: '', enabled: true, showTooltip: true, rulesEnabled: true }; },
+      onChange(f) { settingsChanged = f; },
+      defineSchema(f) { caps.schema = f; },
+    },
+    ui: {
+      decorateFileTree(spec) { caps.deco = spec; return { refresh() { renderTree(); } }; },
+      fileTreeMenu(spec) { caps.menus.push(spec); },
+      command(spec) { (caps.commands = caps.commands || []).push(spec); },
+      statusBar(spec) { caps.status.push(spec); return { refresh() {} }; },
+      notice(msg, opt) { toast(msg, opt && opt.kind === 'error'); },
+    },
+    views: {
+      register(spec) { caps.views = spec; },
+      open() {
+        const host = document.getElementById('view');
+        host.replaceChildren();
+        if (caps.views) caps.views.render(host, { close() {} });
+      },
+    },
+    vault: {
+      on() {},
+      async list() {
+        return TREE.reduce((acc, n) => acc.concat(n.files.map((f) => ({ path: n.path + '/' + f }))), []);
+      },
+    },
+    active: { path: () => null },
+    timers: {
+      debounce(fn, ms) {
+        let t; return function () { clearTimeout(t); const a = arguments; t = setTimeout(() => fn.apply(null, a), ms); };
+      },
+      throttle(fn, ms) {
+        let last = 0, t;
+        return function () {
+          const now = Date.now(), a = arguments;
+          if (now - last >= ms) { last = now; fn.apply(null, a); }
+          else { clearTimeout(t); t = setTimeout(() => { last = Date.now(); fn.apply(null, a); }, ms); }
+        };
+      },
+      setTimeout(fn, ms) { return setTimeout(fn, ms); },
+    },
+  };
+
+  /* ---------- 假文件树 ---------- */
+  const TREE = [
+    { path: '01-项目', files: ['需求池.md', '里程碑.md'] },
+    { path: '02-会议', files: ['周会纪要.md'] },
+    { path: '03-素材', files: ['banner.png'] },
+    { path: '04-笔记', files: [], sub: [{ path: '04-笔记/2026', files: ['1120.md'] }] },
+    { path: '05-归档', files: ['2025.md'] },
+  ];
+
+  function svgBox(mark, size, cls) {
+    const s = document.createElement('span');
+    s.className = cls || 'ic';
+    s.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"' +
+      ' stroke-linecap="round" stroke-linejoin="round" width="' + size + '" height="' + size + '">' + mark + '</svg>';
+    return s;
+  }
+
+  function markFromNodes(nodes) {
+    if (!nodes) return '';
+    return nodes.map((p) => {
+      if (p.charCodeAt(0) === 64) {
+        const sp = p.indexOf(' ');
+        const tag = p.slice(1, sp);
+        const attrs = p.slice(sp + 1).split(',').map((kv) => {
+          const i = kv.indexOf('=');
+          return kv.slice(0, i) + '="' + kv.slice(i + 1) + '"';
+        }).join(' ');
+        return '<' + tag + ' ' + attrs + '/>';
+      }
+      return '<path d="' + p + '"/>';
+    }).join('');
+  }
+
+  const DEFAULT_FOLDER = () => markFromNodes(LUCIDE['folder']);
+  const DEFAULT_FILE = () => markFromNodes(LUCIDE['file-text']);
+
+  function renderTree() {
+    const box = document.getElementById('tree');
+    box.replaceChildren();
+
+    const addRow = (path, depth, isFile) => {
+      const row = document.createElement('div');
+      row.className = 'row ' + (isFile ? 'file' : 'folder') + (depth ? ' lv2' : '');
+      const name = path.slice(path.lastIndexOf('/') + 1);
+
+      if (isFile) {
+        row.appendChild(svgBox(DEFAULT_FILE(), 14));
+      } else {
+        const d = caps.deco ? caps.deco.decorate({ kind: 'directory', path: path, name: name }) : null;
+        if (d && d.icon) {
+          const wrap = svgBox(d.icon, 15);
+          if (d.color) wrap.style.color = d.color;
+          row.appendChild(wrap);
+        } else {
+          row.appendChild(svgBox(DEFAULT_FOLDER(), 15));
+        }
+        if (d && d.badge) {
+          const b = document.createElement('span');
+          b.className = 'badge';
+          b.textContent = d.badge;
+          row.appendChild(b);
+        }
+      }
+
+      const nm = document.createElement('span');
+      nm.className = 'nm';
+      nm.textContent = name;
+      row.appendChild(nm);
+
+      if (!isFile) {
+        const hint = document.createElement('span');
+        hint.className = 'hint';
+        hint.textContent = '右键';
+        row.appendChild(hint);
+        row.addEventListener('contextmenu', (e) => { e.preventDefault(); openMenu(e, path, name); });
+      }
+      box.appendChild(row);
+    };
+
+    TREE.forEach((n) => {
+      addRow(n.path, 0, false);
+      (n.sub || []).forEach((s) => {
+        addRow(s.path, 1, false);
+        s.files.forEach((f) => addRow(s.path + '/' + f, 1, true));
+      });
+      n.files.forEach((f) => addRow(n.path + '/' + f, 0, true));
+    });
+
+    renderStatus();
+  }
+
+  /* ---------- 右键菜单 ---------- */
+  const menu = document.getElementById('menu');
+
+  function openMenu(e, path, name) {
+    const target = { workspaceId: 'ws1', path: path, name: name, kind: 'folder' };
+    const items = caps.menus.filter((m) => {
+      if (m.when && m.when !== 'any' && m.when !== 'folder') return false;
+      if (typeof m.enabled === 'function') { try { return !!m.enabled(target); } catch (err) { return false; } }
+      return true;
+    });
+
+    menu.replaceChildren();
+    const sub = document.createElement('div');
+    sub.className = 'sub';
+    sub.textContent = '插件';
+    menu.appendChild(sub);
+
+    if (!items.length) {
+      const d = document.createElement('div');
+      d.className = 'mi dim';
+      d.textContent = '（无可用项）';
+      menu.appendChild(d);
+    }
+    items.forEach((m) => {
+      const it = document.createElement('div');
+      it.className = 'mi';
+      if (m.icon && LUCIDE[m.icon]) it.appendChild(svgBox(markFromNodes(LUCIDE[m.icon]), 14, ''));
+      const t = document.createElement('span');
+      t.textContent = m.label;
+      it.appendChild(t);
+      it.addEventListener('click', () => {
+        menu.classList.remove('on');
+        try { m.run(target); } catch (err) { toast('执行失败：' + err.message, true); }
+      });
+      menu.appendChild(it);
+    });
+
+    menu.classList.add('on');
+    const w = menu.offsetWidth, h = menu.offsetHeight;
+    menu.style.left = Math.min(e.clientX, window.innerWidth - w - 8) + 'px';
+    menu.style.top = Math.min(e.clientY, window.innerHeight - h - 8) + 'px';
+  }
+
+  document.addEventListener('click', (e) => {
+    if (!menu.contains(e.target)) menu.classList.remove('on');
+  });
+  window.addEventListener('blur', () => menu.classList.remove('on'));
+
+  /* ---------- 状态栏 / toast ---------- */
+  function renderStatus() {
+    const bar = document.getElementById('status');
+    bar.replaceChildren();
+    caps.status.forEach((s) => {
+      let txt = '';
+      try { txt = typeof s.text === 'function' ? s.text() : s.text; } catch (e) { txt = ''; }
+      if (!txt) return;
+      const it = document.createElement('span');
+      it.className = 'item';
+      it.textContent = txt;
+      if (s.onClick) it.addEventListener('click', s.onClick);
+      bar.appendChild(it);
+    });
+    const right = document.createElement('span');
+    right.style.marginLeft = 'auto';
+    right.textContent = '预览环境 · 配置仅存于内存';
+    bar.appendChild(right);
+  }
+
+  function toast(msg, isErr) {
+    const box = document.getElementById('toast');
+    const d = document.createElement('div');
+    d.className = 'tst';
+    if (isErr) d.style.borderLeftColor = '#f87171';
+    d.textContent = msg;
+    box.appendChild(d);
+    setTimeout(() => { d.style.opacity = '0'; setTimeout(() => d.remove(), 250); }, 2200);
+    setTimeout(renderStatus, 30);
+  }
+
+  /* ---------- 顶部按钮 ---------- */
+  document.getElementById('btnDefault').addEventListener('click', () => {
+    const cur = store.__s || { defaultIcon: '', enabled: true };
+    cur.defaultIcon = cur.defaultIcon ? '' : 'folder-open';
+    store.__s = cur;
+    if (settingsChanged) settingsChanged();
+    toast(cur.defaultIcon ? '全局默认图标：folder-open' : '全局默认图标：已关闭');
+  });
+
+  document.getElementById('btnReset').addEventListener('click', () => {
+    store.config = { folders: {}, rules: [] };
+    store.__s = { defaultIcon: '', enabled: true };
+    if (settingsChanged) settingsChanged();
+    document.getElementById('view').innerHTML =
+      '<div class="placeholder"><div>已重置。右键左侧文件夹重新设置。</div></div>';
+    renderTree();
+    toast('已重置全部配置');
+  });
+
+  /* ---------- 启动 ---------- */
+  module.exports.activate(ctx).then(() => {
+    renderTree();
+  }).catch((e) => {
+    document.getElementById('view').innerHTML =
+      '<div class="placeholder">激活失败：' + e.message + '</div>';
+  });
+})();
+</script>
+</body>
+</html>

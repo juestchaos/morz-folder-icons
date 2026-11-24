@@ -1,0 +1,10 @@
+{
+  "id": "folder-icons",
+  "name": "文件夹图标",
+  "version": "1.0.0",
+  "description": "给文件树的文件夹设置 Lucide 图标：右键设置、图标可搜索（支持中文）、内置 2102 个图标、可按文件夹名规则批量匹配",
+  "author": "juestchaos",
+  "sdk": 1,
+  "permissions": ["vault:read", "workspace", "views", "settings"],
+  "icon": "icon-128.svg"
+}

@@ -1,0 +1,430 @@
+{
+  "工作": [
+    "briefcase",
+    "folder-kanban"
+  ],
+  "项目": [
+    "rocket",
+    "folder-kanban",
+    "kanban",
+    "folder-git-2"
+  ],
+  "会议": [
+    "calendar",
+    "calendar-days",
+    "calendar-check",
+    "users"
+  ],
+  "日程": [
+    "calendar",
+    "calendar-days",
+    "calendar-clock"
+  ],
+  "文档": [
+    "file-text",
+    "files",
+    "book-open"
+  ],
+  "笔记": [
+    "notebook-pen",
+    "pen-line",
+    "sticky-note",
+    "notebook"
+  ],
+  "表格": [
+    "sheet",
+    "table",
+    "table-2"
+  ],
+  "演示": [
+    "presentation",
+    "monitor-play"
+  ],
+  "幻灯片": [
+    "presentation",
+    "monitor-play"
+  ],
+  "报告": [
+    "chart-bar",
+    "chart-column",
+    "chart-pie"
+  ],
+  "数据": [
+    "chart-column",
+    "database",
+    "chart-line"
+  ],
+  "合同": [
+    "file-check",
+    "signature",
+    "scroll-text"
+  ],
+  "财务": [
+    "wallet",
+    "credit-card",
+    "piggy-bank",
+    "receipt"
+  ],
+  "发票": [
+    "receipt",
+    "file-text"
+  ],
+  "照片": [
+    "image",
+    "images",
+    "camera"
+  ],
+  "图片": [
+    "image",
+    "images",
+    "camera"
+  ],
+  "截图": [
+    "image",
+    "monitor"
+  ],
+  "视频": [
+    "video",
+    "film",
+    "clapperboard"
+  ],
+  "音乐": [
+    "file-music"
+  ],
+  "音频": [
+    "file-music",
+    "mic"
+  ],
+  "旅行": [
+    "plane",
+    "luggage",
+    "map"
+  ],
+  "出行": [
+    "plane",
+    "car",
+    "map-pin"
+  ],
+  "美食": [
+    "utensils",
+    "coffee",
+    "cake"
+  ],
+  "健康": [
+    "heart-pulse",
+    "stethoscope",
+    "dumbbell"
+  ],
+  "运动": [
+    "dumbbell",
+    "bike",
+    "activity"
+  ],
+  "购物": [
+    "shopping-cart",
+    "shopping-bag"
+  ],
+  "代码": [
+    "code",
+    "code-xml",
+    "braces",
+    "terminal"
+  ],
+  "开发": [
+    "code",
+    "git-branch",
+    "terminal"
+  ],
+  "数据库": [
+    "database",
+    "server",
+    "hard-drive"
+  ],
+  "服务器": [
+    "server",
+    "hard-drive",
+    "cloud"
+  ],
+  "云": [
+    "cloud",
+    "cloud-upload"
+  ],
+  "网络": [
+    "globe",
+    "wifi",
+    "network"
+  ],
+  "安全": [
+    "shield",
+    "lock",
+    "key"
+  ],
+  "密钥": [
+    "key",
+    "lock",
+    "shield-check"
+  ],
+  "智能": [
+    "bot",
+    "cpu",
+    "brain"
+  ],
+  "学习": [
+    "book-open",
+    "graduation-cap",
+    "library"
+  ],
+  "课程": [
+    "graduation-cap",
+    "school"
+  ],
+  "语言": [
+    "languages",
+    "message-circle"
+  ],
+  "归档": [
+    "archive",
+    "package"
+  ],
+  "备份": [
+    "archive",
+    "hard-drive-download",
+    "save"
+  ],
+  "收藏": [
+    "star",
+    "bookmark",
+    "heart"
+  ],
+  "重要": [
+    "siren",
+    "triangle-exclamation-point",
+    "pin",
+    "flame"
+  ],
+  "临时": [
+    "clock",
+    "timer",
+    "trash"
+  ],
+  "草稿": [
+    "pen-line",
+    "file-pen"
+  ],
+  "待办": [
+    "list-checks",
+    "square-check",
+    "square-check-big"
+  ],
+  "灵感": [
+    "lightbulb",
+    "sparkles"
+  ],
+  "目标": [
+    "target",
+    "flag",
+    "trophy"
+  ],
+  "家": [
+    "house"
+  ],
+  "家庭": [
+    "house",
+    "users"
+  ],
+  "用户": [
+    "users",
+    "user",
+    "contact"
+  ],
+  "客户": [
+    "contact",
+    "users",
+    "building"
+  ],
+  "邮件": [
+    "mail",
+    "inbox",
+    "send"
+  ],
+  "链接": [
+    "link",
+    "external-link"
+  ],
+  "设置": [
+    "settings",
+    "sliders-horizontal",
+    "wrench"
+  ],
+  "工具": [
+    "wrench",
+    "hammer",
+    "settings"
+  ],
+  "搜索": [
+    "search",
+    "scan"
+  ],
+  "下载": [
+    "download",
+    "arrow-down-to-line"
+  ],
+  "上传": [
+    "upload",
+    "arrow-up-to-line"
+  ],
+  "分享": [
+    "share-2",
+    "forward"
+  ],
+  "版本": [
+    "git-branch",
+    "git-merge",
+    "git-compare"
+  ],
+  "设计": [
+    "palette",
+    "brush",
+    "pen-tool"
+  ],
+  "素材": [
+    "package",
+    "boxes",
+    "layers"
+  ],
+  "模板": [
+    "layout-grid",
+    "layout-template",
+    "copy"
+  ],
+  "组件": [
+    "box",
+    "component",
+    "puzzle"
+  ],
+  "公司": [
+    "building",
+    "building-complex"
+  ],
+  "产品": [
+    "package",
+    "rocket",
+    "box"
+  ],
+  "运营": [
+    "chart-line",
+    "megaphone",
+    "target"
+  ],
+  "招聘": [
+    "users",
+    "user-plus",
+    "badge-check"
+  ],
+  "培训": [
+    "graduation-cap",
+    "presentation"
+  ],
+  "法务": [
+    "scale",
+    "gavel",
+    "signature"
+  ],
+  "医疗": [
+    "stethoscope",
+    "heart-pulse",
+    "pill"
+  ],
+  "天气": [
+    "sun",
+    "cloud-sun",
+    "droplet"
+  ],
+  "地图": [
+    "map",
+    "map-pin",
+    "compass"
+  ],
+  "户外": [
+    "tent",
+    "mountain",
+    "trees"
+  ],
+  "植物": [
+    "leaf",
+    "sprout",
+    "flower"
+  ],
+  "能量": [
+    "zap",
+    "battery",
+    "plug"
+  ],
+  "消息": [
+    "message-circle",
+    "bell",
+    "mic"
+  ],
+  "标签": [
+    "tag",
+    "tags",
+    "list-filter"
+  ],
+  "文件夹": [
+    "folder",
+    "folder-open",
+    "folder-closed"
+  ],
+  "加密": [
+    "lock",
+    "key-round",
+    "shield"
+  ],
+  "图标": [
+    "shapes",
+    "image",
+    "palette"
+  ],
+  "日历": [
+    "calendar",
+    "calendar-days"
+  ],
+  "时钟": [
+    "clock",
+    "timer",
+    "alarm-clock"
+  ],
+  "星标": [
+    "star",
+    "sparkle",
+    "sparkles"
+  ],
+  "旗帜": [
+    "flag",
+    "milestone"
+  ],
+  "建筑": [
+    "building",
+    "building-complex",
+    "warehouse"
+  ],
+  "物流": [
+    "truck",
+    "package",
+    "map-pin"
+  ],
+  "汽车": [
+    "car",
+    "fuel"
+  ],
+  "实验": [
+    "flask-conical",
+    "test-tube",
+    "beaker"
+  ],
+  "教程": [
+    "circle-play",
+    "book-open",
+    "graduation-cap"
+  ]
+}

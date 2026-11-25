@@ -222,6 +222,62 @@ const menuOf = (label) => caps.menus.find((m) => m.label.indexOf(label) === 0);
   await wait(80);
   check('新增规则写入配置', curCfg().rules.length === 1, JSON.stringify(curCfg().rules));
 
+  /* 9.1) 规则行：图标要能点开挑选，而不是让人手填 lucide 名 */
+  const ruleRow = () => ws.querySelector('.fi-row:not(.fi-row-head)');
+  check('规则行有可点图标按钮', !!ruleRow().querySelector('.fi-iconbtn'));
+  check('规则行有图标名按钮', !!ruleRow().querySelector('.fi-namebtn'));
+  check('规则行只剩关键词一个输入框', ruleRow().querySelectorAll('input').length === 1,
+    String(ruleRow().querySelectorAll('input').length));
+  check('规则行有列头', !!ws.querySelector('.fi-row-head'),
+    ws.querySelector('.fi-row-head') ? ws.querySelector('.fi-row-head').textContent : 'none');
+
+  ruleRow().querySelector('.fi-iconbtn').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await wait(80);
+  const pickPop = document.querySelector('.fi-pop-pick');
+  check('点规则图标弹出挑选浮层', !!pickPop);
+  check('挑选浮层挂在 body', pickPop && pickPop.parentElement === document.body);
+  check('挑选浮层有搜索框与网格', !!pickPop && !!pickPop.querySelector('.fi-search') && pickPop.querySelectorAll('.fi-cell').length > 0);
+  check('挑选浮层不显示文件夹来源行', !!pickPop && !pickPop.querySelector('.fi-src'));
+  check('挑选浮层不复用文件夹标题', !!pickPop && !pickPop.querySelector('.fi-target'));
+
+  const rsIn = pickPop.querySelector('.fi-search');
+  rsIn.value = 'rocket';
+  rsIn.dispatchEvent(new dom.window.Event('input'));
+  await wait(260);
+  const rocketCell = Array.from(pickPop.querySelectorAll('.fi-cell')).find((b) => b.dataset.name === 'rocket');
+  check('搜索能命中 rocket', !!rocketCell);
+  rocketCell.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await wait(220);
+  check('选中后挑选浮层关闭', !document.querySelector('.fi-pop-pick'));
+  check('规则图标已更新', curCfg().rules[0].icon === 'rocket', JSON.stringify(curCfg().rules[0]));
+  check('按钮回显新图标名',
+    ruleRow().querySelector('.fi-namebtn').textContent.indexOf('rocket') >= 0,
+    ruleRow().querySelector('.fi-namebtn').textContent);
+  check('规则页重绘后仍停在规则页', !!ws.querySelector('.fi-hint') && !!ruleRow());
+
+  /* 关键词才决定命中范围：只影响名字带它的文件夹 */
+  const patIn = ruleRow().querySelector('input');
+  patIn.value = '会议';
+  patIn.dispatchEvent(new dom.window.Event('input'));
+  await wait(140);
+  const dHit = caps.deco.decorate({ kind: 'directory', path: 'notes/会议', name: '会议' });
+  const dMiss = caps.deco.decorate({ kind: 'directory', path: 'notes/随便', name: '随便' });
+  check('规则只套中关键词命中的文件夹',
+    !!dHit && dHit.icon.indexOf('<') === 0 && (!dMiss || dHit.icon !== dMiss.icon),
+    JSON.stringify([!!dHit, !!dMiss]));
+
+  /* 取消按钮不该改配置 */
+  ruleRow().querySelector('.fi-namebtn').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await wait(80);
+  const pickPop2 = document.querySelector('.fi-pop-pick');
+  check('图标名按钮也能打开挑选浮层', !!pickPop2);
+  const cancelBtn = Array.from(pickPop2.querySelectorAll('.fi-btn')).find((b) => b.textContent === '取消');
+  check('挑选浮层有取消按钮', !!cancelBtn);
+  cancelBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await wait(60);
+  check('取消后关闭且不改图标', !document.querySelector('.fi-pop-pick') && curCfg().rules[0].icon === 'rocket',
+    JSON.stringify(curCfg().rules[0]));
+
   /* 10) 总览（无目标） */
   menuOf('文件夹图标总览').run({ workspaceId: 'ws1', path: 'notes/项目', name: '项目', kind: 'background' });
   await wait(50);

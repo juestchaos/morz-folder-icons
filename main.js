@@ -474,6 +474,7 @@ let ui = {
 let decoHandle = null;
 let activeContainer = null;         // 主区域视图容器
 let gridTeardown = null;            // 上一份图标网格的滚动监听清理函数
+let gridOwner = null;               // 这套监听挂在哪块容器上，浮层关闭时据此回收
 let viewTab = 'icons';
 let target = { path: '', name: '' };
 let queryTxt = '';
@@ -866,6 +867,8 @@ function ruleIconOf(name) {
     const r = cfg.rules[i];
     if (!r || !r.icon) continue;
     const p = r.p || '';
+    /* 关键词为空 = 还没填完，任何类型都不命中，避免新加的规则一把套住所有文件夹 */
+    if (!p) continue;
     if (r.type === 'startsWith') {
       if (name.indexOf(p) === 0) return r.icon;
     } else if (r.type === 'regex') {
@@ -876,7 +879,7 @@ function ruleIconOf(name) {
       }
       if (re && re.test(name)) return r.icon;
     } else {
-      if (p && name.indexOf(p) !== -1) return r.icon;
+      if (name.indexOf(p) !== -1) return r.icon;
     }
   }
   return '';
@@ -1063,7 +1066,17 @@ function injectStyle() {
 .fi-sw::-webkit-color-swatch-wrapper{padding:2px}
 .fi-sw::-webkit-color-swatch{border:0;border-radius:4px}
 .fi-label{opacity:.6;font-size:11px}
-.fi-row{display:grid;grid-template-columns:34px 92px 1fr 92px auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--background-modifier-border,#2a2a2a)}
+.fi-row{display:grid;grid-template-columns:32px 92px 1fr 124px auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--background-modifier-border,#2a2a2a)}
+.fi-row-head{border-bottom:1px solid var(--background-modifier-border,#333);font-size:11px;opacity:.5;padding-bottom:5px}
+.fi-iconbtn{display:flex;align-items:center;justify-content:center;width:30px;height:26px;padding:0;border-radius:6px;
+  border:1px solid var(--background-modifier-border,#333);background:none;color:inherit;cursor:pointer}
+.fi-iconbtn:hover{border-color:var(--primary-color,#60a5fa);background:var(--ui-hover,rgba(128,128,128,.15))}
+.fi-namebtn{display:flex;align-items:center;gap:4px;min-width:0;padding:4px 8px;border-radius:6px;
+  border:1px solid var(--background-modifier-border,#333);background:none;color:inherit;font:inherit;font-size:12px;cursor:pointer;text-align:left}
+.fi-namebtn span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fi-namebtn .cv{flex:none;opacity:.45;font-size:10px}
+.fi-namebtn:hover{border-color:var(--primary-color,#60a5fa);background:var(--ui-hover,rgba(128,128,128,.15))}
+.fi-namebtn.empty{opacity:.85;border-style:dashed;color:var(--primary-color,#60a5fa)}
 .fi-row select{padding:4px 6px;border-radius:6px;border:1px solid var(--background-modifier-border,#333);background:var(--ui-bg,transparent);color:inherit;font:inherit;font-size:12px}
 .fi-hint{opacity:.55;font-size:12px;line-height:1.7;margin:6px 0 10px}
 .fi-sub{margin:16px 0 4px;font-size:12px;font-weight:600;opacity:.8;letter-spacing:.02em}
@@ -1170,6 +1183,9 @@ function mountIconPane(host, opts) {
   if (opts.compact) host.classList.remove("fi-wide");
   else host.classList.add("fi-wide");
 
+  /* 纯选图标模式：给名称规则用。没有目标文件夹，选中即回调，不碰 folders 配置 */
+  const pick = opts.pick || null;
+
   /* 搜索行 */
   const top = h('div', 'fi-pane-top');
   const input = h('input', 'fi-search');
@@ -1182,7 +1198,7 @@ function mountIconPane(host, opts) {
   host.appendChild(top);
 
   /* 目标：视图里才显示路径，浮层标题已有 */
-  if (!opts.compact && target.path) {
+  if (!opts.compact && !pick && target.path) {
     const tg = h('div', 'fi-target');
     tg.appendChild(h('b', null, '目标文件夹'));
     tg.appendChild(h('code', null, target.path));
@@ -1196,7 +1212,7 @@ function mountIconPane(host, opts) {
 
   function renderSrc() {
     srcHost.replaceChildren();
-    if (!target.path) return;
+    if (pick || !target.path) return;
     const src = sourceOf(target.path);
     const line = h('div', 'fi-src');
     line.appendChild(h('span', 'fi-dot ' + src.kind));
@@ -1207,7 +1223,7 @@ function mountIconPane(host, opts) {
   renderSrc();
 
   /* 无目标 → 已配置总览 */
-  if (!target.path) {
+  if (!pick && !target.path) {
     const body0 = h('div', 'fi-body');
     host.appendChild(body0);
     const keys = Object.keys(cfg.folders).sort();
@@ -1239,7 +1255,7 @@ function mountIconPane(host, opts) {
   const foot = h('div', 'fi-foot');
   host.appendChild(foot);
 
-  let selected = (getRec(target.path) || {}).icon || '';
+  let selected = pick ? (pick.icon || '') : ((getRec(target.path) || {}).icon || '');
 
   function syncSelected() {
     if (!gridEl) return;
@@ -1347,9 +1363,11 @@ function mountIconPane(host, opts) {
       if (io) { try { io.disconnect(); } catch (e) { /* noop */ } }
       gridTeardown = null;
     };
+    gridOwner = host;
   }
 
   async function applyIcon(name) {
+    if (pick) { pick.onPick(name); return; }
     const prev = getRec(target.path) || {};
     const rec = { icon: name };
     if (prev.color) rec.color = prev.color;
@@ -1366,6 +1384,13 @@ function mountIconPane(host, opts) {
 
   function renderFoot() {
     foot.replaceChildren();
+    if (pick) {
+      foot.appendChild(h('span', 'fi-label', '点一个图标即选中本行规则'));
+      const cancel = h('button', 'fi-btn', '取消');
+      cancel.addEventListener('click', () => { if (typeof pick.onCancel === 'function') pick.onCancel(); });
+      foot.appendChild(cancel);
+      return;
+    }
     const rec = getRec(target.path);
 
     foot.appendChild(h('span', 'fi-label', '颜色'));
@@ -1471,16 +1496,16 @@ function paintRules(host) {
   host.replaceChildren();
 
   host.appendChild(h('div', 'fi-hint',
-    '名称规则的作用：按文件夹的名字批量套图标，不用一个个点。'
-    + '比如加一条「包含 会议 → calendar」，之后任何名字里带“会议”的文件夹都会自动显示日历图标，'
-    + '新建的文件夹也立刻生效。'));
+    '名称规则：按文件夹的名字批量套图标，不用一个个点。'
+    + '例：加一条「包含 会议 → calendar」，之后名字里带“会议”的文件夹都自动换成日历图标，新建的也立刻生效。'));
   host.appendChild(h('div', 'fi-hint',
     '从上往下取第一条命中。优先级：单独设过的图标 ＞ 名称规则 ＞ 全局默认图标。'
-    + '规则只管图标，不管颜色。'));
+    + '规则只换图标，不改颜色。点每行左边的图标或名字即可挑选，不用记图标名。'));
 
   const addBtn = h('button', 'fi-btn', '+ 新增规则');
   addBtn.addEventListener('click', async () => {
-    cfg.rules.push({ id: 'r' + Date.now(), type: 'contains', p: '', icon: 'folder' });
+    /* 新规则故意不预置图标：没选图标前这条规则不生效，避免「看起来没反应」 */
+    cfg.rules.push({ id: 'r' + Date.now(), type: 'contains', p: '', icon: '' });
     await saveCfg();
     refreshTree();
     paintRules(host);
@@ -1493,10 +1518,23 @@ function paintRules(host) {
     return;
   }
 
+  /* 列头：四个格子依次是 图标 / 条件 / 关键词 / 套用图标 */
+  const head = h('div', 'fi-row fi-row-head');
+  head.appendChild(h('span', null, '图标'));
+  head.appendChild(h('span', null, '判断方式'));
+  head.appendChild(h('span', null, '文件夹名里的关键词'));
+  head.appendChild(h('span', null, '套用图标'));
+  host.appendChild(head);
+
   const wrap = h('div');
   cfg.rules.forEach((r, idx) => {
     const row = h('div', 'fi-row');
-    row.appendChild(svgEl(r.icon, 16));
+
+    /* 选中图标：左侧预览本身就是按钮，点了就开挑选浮层 */
+    const iconBtn = h('button', 'fi-iconbtn');
+    iconBtn.title = '点此挑选图标';
+    iconBtn.appendChild(svgEl(r.icon || 'circle-dashed', 16));
+    row.appendChild(iconBtn);
 
     const type = h('select');
     [['contains', '包含'], ['startsWith', '开头是'], ['regex', '正则']].forEach(([v, l]) => {
@@ -1523,16 +1561,25 @@ function paintRules(host) {
     }, 250));
     row.appendChild(pat);
 
-    const icon = h('input', 'fi-in');
-    icon.placeholder = 'lucide 名';
-    icon.value = r.icon || '';
-    icon.addEventListener('input', C.timers.debounce(async () => {
-      const v = icon.value.trim();
-      if (v && !LUCIDE[v]) { C.ui.notice('未知图标名：' + v, { kind: 'error' }); return; }
-      r.icon = v;
-      await saveCfg(); refreshTree(); paintRules(host);
-    }, 300));
-    row.appendChild(icon);
+    /* 图标名不再是裸输入框：按钮显示当前名，点开挑选 */
+    const nameBtn = h('button', 'fi-namebtn' + (r.icon ? '' : ' empty'));
+    nameBtn.title = '点此挑选图标';
+    nameBtn.appendChild(h('span', null, r.icon || '选择图标'));
+    nameBtn.appendChild(h('span', 'cv', '⌄'));
+    row.appendChild(nameBtn);
+
+    const openPicker = (anchorEl) => {
+      openPickerAt(anchorEl, r.icon, async (name) => {
+        r.icon = name;
+        regexCache.clear();
+        await saveCfg();
+        refreshTree();
+        paintRules(host);
+        C.ui.notice('规则已改为：' + name + (r.p ? '（命中「' + r.p + '」的文件夹）' : '（填上关键词后生效）'));
+      });
+    };
+    iconBtn.addEventListener('click', () => openPicker(iconBtn));
+    nameBtn.addEventListener('click', () => openPicker(nameBtn));
 
     const del = h('button', 'fi-btn warn', '删除');
     del.addEventListener('click', async () => {
@@ -1835,10 +1882,13 @@ function closePopover() {
     try { popCleanup[i](); } catch (e) { /* noop */ }
   }
   popCleanup = [];
+  /* 浮层里的网格被一起销毁，它挂在 document 上的滚动监听要跟着摘掉 */
+  if (gridTeardown && gridOwner && popEl && popEl.contains(gridOwner)) gridTeardown();
   if (popEl) {
     try { popEl.remove(); } catch (e) { /* noop */ }
     popEl = null;
   }
+  gridOwner = null;
 }
 
 function openPopover(path, name) {
@@ -1893,6 +1943,11 @@ function openPopover(path, name) {
   el.style.visibility = '';
 
   /* 轻关闭：点外部、Esc */
+  attachLightClose(el);
+}
+
+/** 点外部 / Esc 关闭浮层；同一时刻只允许一个浮层 */
+function attachLightClose(el) {
   const onDown = (e) => { if (!el.contains(e.target)) closePopover(); };
   const onKey = (e) => { if (e.key === 'Escape') closePopover(); };
   const tid = setTimeout(() => {
@@ -1904,6 +1959,63 @@ function openPopover(path, name) {
     document.removeEventListener('mousedown', onDown, true);
     document.removeEventListener('keydown', onKey, true);
   });
+}
+
+/**
+ * 名称规则用的图标挑选浮层：挂在按钮下方，选中即回调。
+ * 复用 mountIconPane 的搜索 + 滚动续批，避免第二套网格逻辑。
+ */
+function openPickerAt(anchorEl, curIcon, onPick) {
+  closePopover();
+  /* 搜索词是全局的，换一处挑选必须重新清空，否则会带着上次的过滤结果 */
+  queryTxt = '';
+  const el = h('div', 'fi-pop fi-pop-pick');
+
+  const head = h('div', 'fi-pop-head');
+  const titles = h('div');
+  titles.style.minWidth = '0';
+  titles.appendChild(h('div', 'nm', '选择图标'));
+  titles.appendChild(h('div', 'sub', '这条规则命中的文件夹都用它'));
+  head.appendChild(titles);
+  const x = h('button', 'x', '×');
+  x.title = '关闭（Esc）';
+  x.addEventListener('click', closePopover);
+  head.appendChild(x);
+  el.appendChild(head);
+
+  const pane = h('div', 'fi-pane');
+  el.appendChild(pane);
+
+  el.style.visibility = 'hidden';
+  document.body.appendChild(el);
+  popEl = el;
+
+  mountIconPane(pane, {
+    compact: true,
+    autofocus: true,
+    pick: {
+      icon: curIcon || '',
+      onPick: (name) => { closePopover(); onPick(name); },
+      onCancel: closePopover,
+    },
+  });
+
+  /* 贴着按钮定位：下方放不下就翻到上方，左右回夹进视口 */
+  const W = el.offsetWidth || 472;
+  const H = el.offsetHeight || 320;
+  const r = anchorEl && anchorEl.getBoundingClientRect ? anchorEl.getBoundingClientRect() : null;
+  const vw = window.innerWidth || 1200;
+  const vh = window.innerHeight || 800;
+  let px = r ? r.left - 20 : Math.round(vw / 2 - W / 2);
+  let py = r ? r.bottom + 6 : 140;
+  if (py + H > vh - 10) py = r ? Math.max(10, r.top - H - 6) : Math.max(10, vh - H - 10);
+  px = Math.max(10, Math.min(px, vw - W - 10));
+  py = Math.max(10, Math.min(py, vh - H - 10));
+  el.style.left = px + 'px';
+  el.style.top = py + 'px';
+  el.style.visibility = '';
+
+  attachLightClose(el);
 }
 
 /* ---------------- 入口 ---------------- */

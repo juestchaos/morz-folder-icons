@@ -76,7 +76,11 @@ store.config = {
     'notes\\周报\\': { icon: 'inbox' },
     'Notes/Case': { icon: 'star' },
   },
-  rules: [{ id: 'r1', type: 'contains', p: '会议', icon: 'calendar' }],
+  rules: [
+    /* 关键词还没填的规则排在最前：任何类型都不该命中，否则一把套住所有文件夹 */
+    { id: 'r0', type: 'startsWith', p: '', icon: 'inbox' },
+    { id: 'r1', type: 'contains', p: '会议', icon: 'calendar' },
+  ],
 };
 
 const plugin = require(path.join(__dirname, 'main.js'));
@@ -109,6 +113,11 @@ const check = (name, cond, extra) => {
   check('未配置文件夹 → 回退全局默认 folder', !!deco({ kind: 'directory', path: 'notes/其他', name: '其他' }));
   check('文件 → 不装饰', deco({ kind: 'file', path: 'notes/项目/a.md', name: 'a.md' }) === null);
   check('命中名称规则 会议 → calendar', !!deco({ kind: 'directory', path: 'notes/会议', name: '会议' }));
+  /* 空关键词规则若被当成「匹配全部」，会议文件夹会先吃到 inbox，两者图标就会相同 */
+  const dMeet = deco({ kind: 'directory', path: 'notes/会议', name: '会议' });
+  const dNone = deco({ kind: 'directory', path: 'zzz/随便', name: '随便' });
+  check('关键词为空的规则不套用任何文件夹',
+    !!dMeet && !!dNone && dMeet.icon !== dNone.icon);
   check('装载时把反斜杠/尾斜杠的 key 归一',
     !!curCfg().folders['notes/周报'] && !curCfg().folders['notes\\周报\\'],
     JSON.stringify(Object.keys(curCfg().folders)));

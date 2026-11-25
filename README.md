@@ -196,13 +196,15 @@ morz-folder-icons/
 ├── icon.svg            # 24px 线性图标
 ├── icon-128.svg/.png   # 商店图标（128×128）
 ├── test.js              # mock host 测试（21 项）
-└── test-ui.js           # jsdom 浮层/视图测试（43 项）
+├── test-ui.js           # jsdom 浮层/视图测试（43 项）
+└── test-scroll.js       # 滚动加载几何分支测试（6 项）
 ```
 
 ```bash
 node build.js     # 改完 src/ 必须重建
 node test.js      # 核心链路
-NODE_PATH=<jsdom 目录> node test-ui.js   # UI 交互
+NODE_PATH=<jsdom 目录> node test-ui.js     # UI 交互
+NODE_PATH=<jsdom 目录> node test-scroll.js # 滚动加载（会篡改 getBoundingClientRect，故单独跑）
 ```
 
 图标数据来源：`lucide-static@1.78.0` 的 `icon-nodes.json`，只保留 `d` 属性与形状节点，

@@ -140,6 +140,7 @@
 
   const store = {};
   const caps = { deco: null, menus: [], views: null, schema: null, status: [] };
+  const VFS = {};                      // 预览用的内存假库
   let settingsChanged = null;
 
   /* ---------- mock ctx ---------- */
@@ -170,10 +171,15 @@
       },
     },
     vault: {
-      on() {},
+      on(evt, cb) { (caps.vaultEvents = caps.vaultEvents || {})[evt] = cb; },
       async list() {
         return TREE.reduce((acc, n) => acc.concat(n.files.map((f) => ({ path: n.path + '/' + f }))), []);
       },
+      /* 预览里用一个内存假库，让「库内文件」这种存储方式也能真的走一遍 */
+      async exists(p) { return Object.prototype.hasOwnProperty.call(VFS, p); },
+      async read(p) { return Object.prototype.hasOwnProperty.call(VFS, p) ? VFS[p] : ''; },
+      async create(p, t) { VFS[p] = t; return true; },
+      async write(p, t) { VFS[p] = t; return true; },
     },
     active: { path: () => null },
     timers: {

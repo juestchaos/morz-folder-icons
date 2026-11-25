@@ -10,10 +10,16 @@
  * ========================================================== */
 
 const STORE_KEY = 'config';
+const MODE_KEY = 'storeMode';
 const VIEW_ID = 'folder-icons:view';
+/* 库内存储模式下的文件名，固定放在库根目录 */
+const VAULT_FILE = '.folder-icons.json';
 
 let C = null;                       // ctx
 let cfg = { folders: {}, rules: [] };
+/* 'plugin' = 插件私有存储（本机默认）；'vault' = 库根目录下的 .folder-icons.json */
+let storeMode = 'plugin';
+let lastWritten = '';               // 本插件最近一次写进库文件的原文，用来识别「自己写的」事件
 let ui = {
   enabled: true, defaultIcon: '', badge: '',
   showTooltip: true, rulesEnabled: true,
@@ -109,8 +115,19 @@ function searchIcons(q) {
 /* ---------------- 配置读写 ---------------- */
 
 async function loadCfg() {
+  try { storeMode = (await C.storage.get(MODE_KEY)) === 'vault' ? 'vault' : 'plugin'; }
+  catch (e) { storeMode = 'plugin'; }
+
   let raw = null;
   try { raw = await C.storage.get(STORE_KEY); } catch (e) { raw = null; }
+
+  /* 库内模式：以库文件为准；文件不存在就用本机副本补写一份 */
+  if (storeMode === 'vault') {
+    const fromFile = await readVaultCfg();
+    if (fromFile) raw = fromFile;
+    else if (raw) await writeVaultCfg(snapshotOf(raw));
+  }
+
   cfg = {
     folders: (raw && raw.folders && typeof raw.folders === 'object') ? raw.folders : {},
     rules: (raw && Array.isArray(raw.rules)) ? raw.rules : [],
@@ -131,13 +148,89 @@ async function loadCfg() {
   if (dirty) await saveCfg();      // 归一结果落盘，避免每次启动都重算
 }
 
-async function saveCfg() {
+function snapshotOf(src) {
+  const s = src || cfg;
+  return { v: 2, folders: s.folders || {}, rules: s.rules || [] };
+}
+
+async function saveCfg(opts) {
   try {
-    await C.storage.set(STORE_KEY, { v: 2, folders: cfg.folders, rules: cfg.rules });
+    await C.storage.set(STORE_KEY, snapshotOf());
   } catch (e) {
     C.ui.notice('保存失败：' + (e && e.message ? e.message : e), { kind: 'error' });
   }
+  /* keepVaultFile：只更新本机副本，不回写库文件（外部改动读回时用，避免覆盖用户的排版） */
+  if (storeMode === 'vault' && !(opts && opts.keepVaultFile)) await writeVaultCfg(snapshotOf());
 }
+
+/* ---------------- 库内文件存储 ---------------- */
+
+async function readVaultCfg() {
+  try {
+    if (!(await C.vault.exists(VAULT_FILE))) return null;
+    const txt = await C.vault.read(VAULT_FILE);
+    if (!txt) return null;
+    lastWritten = txt;
+    const data = JSON.parse(txt);
+    return (data && typeof data === 'object' && !Array.isArray(data)) ? data : null;
+  } catch (e) {
+    C.ui.notice('读取库内图标文件失败：' + (e && e.message ? e.message : e), { kind: 'error' });
+    return null;
+  }
+}
+
+async function writeVaultCfg(data) {
+  const txt = JSON.stringify(data, null, 2) + '\n';
+  try {
+    if (await C.vault.exists(VAULT_FILE)) await C.vault.write(VAULT_FILE, txt);
+    else await C.vault.create(VAULT_FILE, txt);
+    lastWritten = txt;
+    return true;
+  } catch (e) {
+    C.ui.notice('写入库内图标文件失败：' + (e && e.message ? e.message : e), { kind: 'error' });
+    return false;
+  }
+}
+
+/** 切换存储位置；切到库内时把当前数据立即写一份过去 */
+async function setStoreMode(mode) {
+  const next = mode === 'vault' ? 'vault' : 'plugin';
+  if (next === storeMode) return true;
+  if (next === 'vault') {
+    const ok = await writeVaultCfg(snapshotOf());
+    if (!ok) return false;
+  }
+  storeMode = next;
+  try { await C.storage.set(MODE_KEY, next); } catch (e) { /* noop */ }
+  await saveCfg();
+  return true;
+}
+
+/* 库文件被外部改动（其它设备同步、用户手改）时读回来 */
+let vaultTouchTimer = null;
+function onVaultFileTouched(p) {
+  if (storeMode !== 'vault') return;
+  if (typeof p !== 'string' || normPath(p) !== VAULT_FILE) return;
+  if (vaultTouchTimer) { try { clearTimeout(vaultTouchTimer); } catch (e) { /* noop */ } }
+  vaultTouchTimer = setTimeout(async () => {
+    vaultTouchTimer = null;
+    if (storeMode !== 'vault') return;
+    let txt = '';
+    try { txt = await C.vault.read(VAULT_FILE); } catch (e) { return; }
+    if (!txt || txt === lastWritten) return;      // 自己刚写的那次，忽略
+    const res = importCfg(txt);
+    if (typeof res === 'string') {
+      C.ui.notice('库内图标文件读不了：' + res, { kind: 'error' });
+      return;
+    }
+    lastWritten = txt;
+    await saveCfg({ keepVaultFile: true });   // 本机副本跟上，但不回写文件
+    refreshTree();
+    repaintView();
+    C.ui.notice('已从库内文件读回 ' + res.n + ' 项');
+  }, 400);
+}
+
 
 async function loadSettings() {
   let s = {};
@@ -432,6 +525,17 @@ function injectStyle() {
 .fi-row{display:grid;grid-template-columns:34px 92px 1fr 92px auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--background-modifier-border,#2a2a2a)}
 .fi-row select{padding:4px 6px;border-radius:6px;border:1px solid var(--background-modifier-border,#333);background:var(--ui-bg,transparent);color:inherit;font:inherit;font-size:12px}
 .fi-hint{opacity:.55;font-size:12px;line-height:1.7;margin:6px 0 10px}
+.fi-sub{margin:16px 0 4px;font-size:12px;font-weight:600;opacity:.8;letter-spacing:.02em}
+.fi-sum{display:flex;align-items:baseline;gap:5px;padding:10px 12px;margin:2px 0 12px;border-radius:8px;background:var(--ui-hover,rgba(128,128,128,.12))}
+.fi-sum-n{font-size:18px;font-weight:600;line-height:1}
+.fi-sum .fi-label{margin-right:10px}
+.fi-store{padding:10px 12px;margin-bottom:14px;border:1px solid var(--background-modifier-border,#333);border-radius:8px}
+.fi-store-title{font-size:12px;font-weight:600;opacity:.8;margin-bottom:8px}
+.fi-seg{display:inline-flex;padding:2px;gap:2px;border-radius:7px;background:var(--ui-hover,rgba(128,128,128,.12));margin-bottom:8px}
+.fi-seg-b{padding:4px 12px;border:0;border-radius:5px;background:none;color:inherit;font:inherit;font-size:12px;cursor:pointer;opacity:.7}
+.fi-seg-b:hover{opacity:1}
+.fi-seg-b.on{opacity:1;background:var(--ui-bg,var(--background-primary,#2a2a2c));box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.fi-store-desc{font-size:12px;line-height:1.7;opacity:.62;margin-bottom:8px}
 .fi-count{opacity:.55;font-size:11px;white-space:nowrap}
 /* 当前图标来源提示 */
 .fi-src{display:flex;align-items:center;gap:6px;padding:0 13px 6px;font-size:11px;opacity:.62}
@@ -823,7 +927,12 @@ function paintRules(host) {
   host.replaceChildren();
 
   host.appendChild(h('div', 'fi-hint',
-    '按文件夹名称匹配，自上而下取第一条命中。优先级：单独设置的图标 ＞ 名称规则 ＞ 全局默认图标。'));
+    '名称规则的作用：按文件夹的名字批量套图标，不用一个个点。'
+    + '比如加一条「包含 会议 → calendar」，之后任何名字里带“会议”的文件夹都会自动显示日历图标，'
+    + '新建的文件夹也立刻生效。'));
+  host.appendChild(h('div', 'fi-hint',
+    '从上往下取第一条命中。优先级：单独设过的图标 ＞ 名称规则 ＞ 全局默认图标。'
+    + '规则只管图标，不管颜色。'));
 
   const addBtn = h('button', 'fi-btn', '+ 新增规则');
   addBtn.addEventListener('click', async () => {
@@ -835,7 +944,8 @@ function paintRules(host) {
   host.appendChild(addBtn);
 
   if (!cfg.rules.length) {
-    host.appendChild(h('div', 'fi-empty', '暂无规则。'));
+    host.appendChild(h('div', 'fi-empty',
+      '还没有规则。例：包含「会议」→ calendar，包含「周报」→ inbox，开头是「2026-」→ calendar-days。'));
     return;
   }
 
@@ -931,44 +1041,135 @@ function importCfg(text) {
 }
 
 function paintData(host) {
-  host.appendChild(h('div', 'fi-hint',
-    '这一页就是插件记下的全部内容：文件夹路径 → 图标记录。它存在宿主的插件私有存储（ctx.storage，键 config）里，'
-    + '不在笔记里，也不在 main.js 里；宿主未公开具体落盘路径，卸载插件时会一并删掉。'));
+  host.replaceChildren();
 
+  const nFolder = Object.keys(cfg.folders).length;
+  const nRule = cfg.rules.length;
+
+  host.appendChild(h('div', 'fi-hint',
+    '这里就是你的全部图标设置：哪个文件夹配哪个图标，以及按名称自动配的规则。'
+    + '换电脑或重装插件之前，建议先导出一份。'));
+
+  /* 概览 */
+  const sum = h('div', 'fi-sum');
+  sum.appendChild(h('span', 'fi-sum-n', String(nFolder)));
+  sum.appendChild(h('span', 'fi-label', '个文件夹'));
+  sum.appendChild(h('span', 'fi-sum-n', String(nRule)));
+  sum.appendChild(h('span', 'fi-label', '条名称规则'));
+  host.appendChild(sum);
+
+  /* 存储位置 */
+  const box = h('div', 'fi-store');
+  box.appendChild(h('div', 'fi-store-title', '存储位置'));
+  const seg = h('div', 'fi-seg');
+  const mkSeg = (id, label) => {
+    const b = h('button', 'fi-seg-b' + (storeMode === id ? ' on' : ''), label);
+    b.addEventListener('click', async () => {
+      if (storeMode === id) return;
+      const ok = await setStoreMode(id);
+      if (!ok) return;
+      refreshTree();
+      repaintView();
+      C.ui.notice(id === 'vault' ? '已改为存在库内文件，会跟着笔记库一起同步' : '已改为存在插件私有存储');
+    });
+    return b;
+  };
+  seg.appendChild(mkSeg('plugin', '插件私有存储'));
+  seg.appendChild(mkSeg('vault', '库内文件'));
+  box.appendChild(seg);
+
+  box.appendChild(h('div', 'fi-store-desc', storeMode === 'vault'
+    ? '存在笔记库根目录的 ' + VAULT_FILE + '：跟着库一起同步，重装插件也还在，换设备能带走。'
+    : '存在插件自己的数据里，只在这台电脑上。卸载插件会一并删除，换电脑带不走。'));
+
+  host.appendChild(box);
+
+  /* 原始数据 */
+  host.appendChild(h('div', 'fi-sub', '原始数据'));
   host.appendChild(h('pre', 'fi-code', snapshotJSON()));
 
   const bar = h('div', 'fi-actions');
-  const cp = h('button', 'fi-btn', '复制 JSON');
+  const cp = h('button', 'fi-btn', '复制');
+  cp.title = '复制成文本，粘到哪都能留一份';
   cp.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(snapshotJSON()); C.ui.notice('已复制到剪贴板'); }
     catch (e) { C.ui.notice('复制失败：可直接拖选上面的文本'); }
   });
   bar.appendChild(cp);
-  const reload = h('button', 'fi-btn', '重新读自存储');
+
+  const toVault = h('button', 'fi-btn', '存到库根目录');
+  toVault.title = '写一份到 ' + VAULT_FILE + '，不改当前的存储位置';
+  toVault.addEventListener('click', async () => {
+    const ok = await writeVaultCfg(snapshotOf());
+    if (ok) C.ui.notice('已保存到库根目录：' + VAULT_FILE);
+  });
+  bar.appendChild(toVault);
+
+  const dl = h('button', 'fi-btn', '导出文件');
+  dl.title = '导出成 .json 文件';
+  dl.addEventListener('click', () => {
+    try {
+      const blob = new Blob([snapshotJSON()], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'folder-icons-' + new Date().toISOString().slice(0, 10) + '.json';
+      a.click();
+      setTimeout(() => { try { URL.revokeObjectURL(url); } catch (e) { /* noop */ } }, 3000);
+      C.ui.notice('已导出');
+    } catch (e) {
+      C.ui.notice('这个环境不让下载，改用「存到库根目录」或「复制」', { kind: 'error' });
+    }
+  });
+  bar.appendChild(dl);
+
+  const reload = h('button', 'fi-btn', '重新读取');
+  reload.title = '丢弃界面上的改动，按已保存的数据重读';
   reload.addEventListener('click', async () => {
     await loadCfg();
     refreshTree();
     repaintView();
-    C.ui.notice('已从存储重新读取');
+    C.ui.notice('已重新读取');
   });
   bar.appendChild(reload);
   host.appendChild(bar);
 
+  /* 导入 */
+  host.appendChild(h('div', 'fi-sub', '从备份恢复'));
+  host.appendChild(h('div', 'fi-hint', '粘贴上面复制的内容，或直接读库根目录里的 ' + VAULT_FILE + '。恢复会覆盖当前全部设置。'));
+
   const ta = h('textarea', 'fi-code-input');
-  ta.placeholder = '把备份的 JSON 粘贴到这里，再点「导入覆盖」';
+  ta.placeholder = '把备份的内容粘贴到这里，再点「恢复」';
   host.appendChild(ta);
 
-  const imp = h('button', 'fi-btn', '导入覆盖');
+  const act = h('div', 'fi-actions');
+  const imp = h('button', 'fi-btn warn', '恢复');
   imp.addEventListener('click', async () => {
+    if (!ta.value.trim()) { C.ui.notice('先粘贴备份内容', { kind: 'error' }); return; }
     const res = importCfg(ta.value);
     if (typeof res === 'string') { C.ui.notice(res, { kind: 'error' }); return; }
     await saveCfg();
     refreshTree();
     repaintView();
-    C.ui.notice('已导入 ' + res.n + ' 项' + (res.skip ? '，跳过 ' + res.skip + ' 项无效' : ''));
+    C.ui.notice('已恢复 ' + res.n + ' 项' + (res.skip ? '，跳过 ' + res.skip + ' 项无效' : ''));
   });
-  host.appendChild(imp);
+  act.appendChild(imp);
+
+  const fromFile = h('button', 'fi-btn', '读库根目录的文件');
+  fromFile.addEventListener('click', async () => {
+    const data = await readVaultCfg();
+    if (!data) { C.ui.notice('库根目录里没有 ' + VAULT_FILE, { kind: 'error' }); return; }
+    const res = importCfg(JSON.stringify(data));
+    if (typeof res === 'string') { C.ui.notice(res, { kind: 'error' }); return; }
+    await saveCfg();
+    refreshTree();
+    repaintView();
+    C.ui.notice('已从 ' + VAULT_FILE + ' 恢复 ' + res.n + ' 项');
+  });
+  act.appendChild(fromFile);
+  host.appendChild(act);
 }
+
 
 /* ---------------- 主区域视图（总览 / 规则 / 数据） ---------------- */
 
@@ -1210,7 +1411,7 @@ module.exports = {
       { key: 'defaultIcon', label: '文件夹默认图标（Lucide 名称；留空则不装饰未单独设置的文件夹）', type: 'text', placeholder: 'folder' },
       { key: 'badge', label: '统一角标（最多 3 字符，留空不显示）', type: 'text' },
       { key: 'showTooltip', label: '悬停时显示文件夹名', type: 'boolean' },
-      { key: 'rulesEnabled', label: '启用名称规则', type: 'boolean' },
+      { key: 'rulesEnabled', label: '按文件夹名自动配图标（名称规则）', type: 'boolean' },
     ]);
 
     C.settings.onChange(async () => {
@@ -1232,6 +1433,16 @@ module.exports = {
 
     /* 文件夹改名/移动 */
     C.vault.on('rename', onRename);
+
+    /* 库内存储模式：别的设备同步过来 / 用户手改了库文件，自动读回 */
+    try {
+      C.vault.on('modify', onVaultFileTouched);
+      C.vault.on('create', onVaultFileTouched);
+      C.vault.on('delete', (p) => {
+        if (storeMode !== 'vault' || normPath(p) !== VAULT_FILE) return;
+        C.ui.notice('库内的 ' + VAULT_FILE + ' 被删除，图标设置仍在本机存储里；下次改动会重新写回', { kind: 'error' });
+      });
+    } catch (e) { /* 宿主不支持这些事件时静默降级 */ }
   },
 
   deactivate() {

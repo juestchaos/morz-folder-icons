@@ -65,7 +65,7 @@ gh repo edit --add-topic morz-plugin
 | 插件必须有 `sdk: 1` | ✅ |
 | 入口文件存在且 ≤ 5MB | ✅ `main.js` 372 KB |
 | 代码导出 `activate` | ✅ |
-| 声明 `vault:read` 就不能出现 `vault.write/delete/create` | ✅ 只有 `vault.exists/list/on` |
+| 声明了 `vault:write` 才允许出现 `vault.write/create/remove` | ✅ 已声明 `vault:write`；写操作只发生在库内文件模式与备份按钮，且只碰库根 `.folder-icons.json` |
 | 不得出现 `eval(` / `new Function(` | ✅ 各 0 处 |
 | 不得有未声明的外部域名请求 | ✅ 无网络请求 |
 

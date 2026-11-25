@@ -17,7 +17,8 @@ global.DocumentFragment = dom.window.DocumentFragment;
 global.Event = dom.window.Event;
 
 const store = {};
-const caps = { deco: null, menus: [], views: null, status: [], commands: [] };
+const vaultFS = {};
+const caps = { deco: null, menus: [], views: null, status: [], commands: [], events: {} };
 
 const ctx = {
   lifecycle: { onUnload() {} },
@@ -45,7 +46,14 @@ const ctx = {
       caps.views.render(host, { close() {} });
     },
   },
-  vault: { on() {}, async list() { return []; } },
+  vault: {
+    on(evt, cb) { caps.events[evt] = cb; },
+    async list() { return []; },
+    async exists(p) { return Object.prototype.hasOwnProperty.call(vaultFS, p); },
+    async read(p) { return Object.prototype.hasOwnProperty.call(vaultFS, p) ? vaultFS[p] : ''; },
+    async create(p, t) { vaultFS[p] = t; return true; },
+    async write(p, t) { vaultFS[p] = t; return true; },
+  },
   active: { path: () => 'notes/项目/a.md' },
   timers: {
     throttle: (f) => f,
@@ -222,10 +230,59 @@ const menuOf = (label) => caps.menus.find((m) => m.label.indexOf(label) === 0);
   check('数据页含版本号 v', !!code && code.textContent.indexOf('"v": 2') >= 0);
   const ta = ws.querySelector('.fi-code-input');
   ta.value = JSON.stringify({ folders: { 'a/b': { icon: 'star' }, 'bad': { icon: 'no-such-icon' } } });
-  const impBtn = Array.from(ws.querySelectorAll('.fi-btn')).find((b) => b.textContent === '导入覆盖');
+  const impBtn = Array.from(ws.querySelectorAll('.fi-btn')).find((b) => b.textContent === '恢复');
   impBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
   await wait(120);
   check('导入只接受有效条目', !!store.config.folders['a/b'] && !store.config.folders['bad'], JSON.stringify(Object.keys(store.config.folders)));
+
+  /* 12) 数据页文案：不能出现开发话术 */
+  const pageText = ws.textContent;
+  check('数据页没有 ctx.storage 之类的开发话术',
+    pageText.indexOf('ctx.') < 0 && pageText.indexOf('宿主') < 0 && pageText.indexOf('main.js') < 0,
+    ['ctx.', '宿主', 'main.js'].filter((k) => pageText.indexOf(k) >= 0).join(','));
+
+  /* 13) 存储位置：默认插件私有，切到库内文件后真的落盘 */
+  const segOn = () => (ws.querySelector('.fi-seg-b.on') || {}).textContent;
+  check('默认存插件私有存储', segOn() === '插件私有存储', String(segOn()));
+  check('未开启时库里没有文件', !Object.keys(vaultFS).length, JSON.stringify(Object.keys(vaultFS)));
+
+  const toVault = Array.from(ws.querySelectorAll('.fi-seg-b')).find((b) => b.textContent === '库内文件');
+  toVault.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await wait(160);
+  check('切到库内文件后写盘', !!vaultFS['.folder-icons.json'], JSON.stringify(Object.keys(vaultFS)));
+  let fileData = null;
+  try { fileData = JSON.parse(vaultFS['.folder-icons.json']); } catch (e) { fileData = null; }
+  check('库文件内容与当前设置一致', !!fileData && !!fileData.folders['a/b'], JSON.stringify(fileData && Object.keys(fileData.folders)));
+  check('切换后选中态更新', segOn() === '库内文件', String(segOn()));
+
+  /* 14) 库内模式下的后续改动要同步进文件 */
+  const beforeTxt = vaultFS['.folder-icons.json'];
+  menuOf('设置文件夹图标').run({ workspaceId: 'ws1', path: 'x/y', name: 'y' });
+  await wait(60);
+  document.querySelector('.fi-pop .fi-cell').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await wait(200);
+  check('库内模式下改动同步到文件',
+    vaultFS['.folder-icons.json'] !== beforeTxt && vaultFS['.folder-icons.json'].indexOf('x/y') >= 0,
+    String(vaultFS['.folder-icons.json']).slice(0, 60));
+  document.body.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }));
+  await wait(40);
+
+  /* 15) 外部改动库文件（其它设备同步 / 手改）→ 自动读回 */
+  vaultFS['.folder-icons.json'] = JSON.stringify({ folders: { 'ext/only': { icon: 'rocket' } }, rules: [] });
+  check('已注册库文件改动监听', typeof caps.events.modify === 'function', Object.keys(caps.events).join(','));
+  if (caps.events.modify) caps.events.modify('.folder-icons.json');
+  await wait(520);
+  check('外部改动库文件后自动读回', !!store.config.folders['ext/only'],
+    JSON.stringify(Object.keys(store.config.folders)));
+
+  /* 16) 「读库根目录的文件」按钮 */
+  vaultFS['.folder-icons.json'] = JSON.stringify({ folders: { 'btn/only': { icon: 'star' } }, rules: [] });
+  const fromFileBtn = Array.from(ws.querySelectorAll('.fi-btn')).find((b) => b.textContent === '读库根目录的文件');
+  check('数据页有「读库根目录的文件」', !!fromFileBtn);
+  fromFileBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await wait(150);
+  check('从库文件恢复成功', !!store.config.folders['btn/only'],
+    JSON.stringify(Object.keys(store.config.folders)));
 
   /* 输出 */
   console.log('');

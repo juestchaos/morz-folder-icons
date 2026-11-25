@@ -15,12 +15,13 @@ const VIEW_ID = 'folder-icons:view';
 let C = null;                       // ctx
 let cfg = { folders: {}, rules: [] };
 let ui = {
-  enabled: true, defaultIcon: '', color: '', badge: '',
+  enabled: true, defaultIcon: '', badge: '',
   showTooltip: true, rulesEnabled: true,
 };
 
 let decoHandle = null;
 let activeContainer = null;         // 主区域视图容器
+let gridTeardown = null;            // 上一份图标网格的滚动监听清理函数
 let viewTab = 'icons';
 let target = { path: '', name: '' };
 let queryTxt = '';
@@ -144,7 +145,6 @@ async function loadSettings() {
   ui = {
     enabled: s.enabled !== false,
     defaultIcon: typeof s.defaultIcon === 'string' ? s.defaultIcon.trim() : '',
-    color: typeof s.color === 'string' ? s.color.trim() : '',
     badge: typeof s.badge === 'string' ? s.badge.trim() : '',
     showTooltip: s.showTooltip !== false,
     rulesEnabled: s.rulesEnabled !== false,
@@ -193,6 +193,33 @@ function reindex() {
   idxLower.clear();
   const keys = Object.keys(cfg.folders);
   for (let i = 0; i < keys.length; i++) idxLower.set(keys[i].toLowerCase(), keys[i]);
+}
+
+/* ---------------- 颜色工具 ---------------- */
+
+/** 能否折成 #rrggbb（给取色器用）；主题变量、颜色名都折不了 */
+function hexOf(v) {
+  const s = String(v || '').trim();
+  let m = /^#([0-9a-f]{3})$/i.exec(s);
+  if (m) return '#' + m[1][0] + m[1][0] + m[1][1] + m[1][1] + m[1][2] + m[1][2];
+  m = /^#([0-9a-f]{6})$/i.exec(s);
+  if (m) return '#' + m[1].toLowerCase();
+  return '';
+}
+
+/** 空串合法（= 跟随主题）。其余必须是浏览器认得的 CSS 颜色或主题变量 */
+function isCssColor(v) {
+  const s = String(v || '').trim();
+  if (!s) return true;
+  if (/^var\(\s*--[-\w]+\s*(,[\s\S]*)?\)$/.test(s)) return true;
+  try {
+    if (typeof CSS !== 'undefined' && CSS && typeof CSS.supports === 'function') {
+      return CSS.supports('color', s);
+    }
+  } catch (e) { /* 落到下面的正则兜底 */ }
+  return /^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(s)
+    || /^(rgb|rgba|hsl|hsla|color)\(/i.test(s)
+    || /^[a-z]{3,24}$/i.test(s);
 }
 
 /** 真实 key：精确命中优先，其次大小写不敏感（Windows 下只改大小写的改名） */
@@ -260,7 +287,8 @@ function decorateRow(entry) {
   if (!mark) return null;
 
   const out = { icon: mark };
-  const color = (rec && rec.color) || ui.color;
+  /* 颜色只认该文件夹自身的记录，不继承任何全局值：留空即跟随主题 */
+  const color = rec && rec.color;
   const badge = (rec && rec.badge) || ui.badge;
   if (color) out.color = color;
   if (badge) out.badge = badge;
@@ -396,6 +424,10 @@ function injectStyle() {
 .fi-btn:hover{background:var(--ui-hover,rgba(128,128,128,.15))}
 .fi-btn.warn{color:#f87171;border-color:#7f1d1d}
 .fi-in{width:84px;padding:4px 8px;border-radius:6px;border:1px solid var(--background-modifier-border,#333);background:var(--ui-bg,transparent);color:inherit;font:inherit;font-size:12px}
+.fi-in.bad{border-color:#f87171}
+.fi-sw{width:26px;height:24px;padding:0;border:1px solid var(--background-modifier-border,#333);border-radius:6px;background:none;cursor:pointer;flex:none}
+.fi-sw::-webkit-color-swatch-wrapper{padding:2px}
+.fi-sw::-webkit-color-swatch{border:0;border-radius:4px}
 .fi-label{opacity:.6;font-size:11px}
 .fi-row{display:grid;grid-template-columns:34px 92px 1fr 92px auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--background-modifier-border,#2a2a2a)}
 .fi-row select{padding:4px 6px;border-radius:6px;border:1px solid var(--background-modifier-border,#333);background:var(--ui-bg,transparent);color:inherit;font:inherit;font-size:12px}
@@ -612,10 +644,61 @@ function mountIconPane(host, opts) {
     batch();
     if (shown < list.length) body.appendChild(more);
 
-    body.onscroll = C.timers.throttle(() => {
+    /* 滚动加载不能只听 .fi-body 的 scroll。
+       全屏视图里宿主给容器的高度不确定，.fi-root 的 height:100% 会退化成 auto，
+       整条 flex 链失去确定高度，真正的滚动条落到外层容器上——.fi-body 自己永远不会滚，
+       监听它的 scroll 就永远不触发。这就是「全屏模式滚动加载不生效」的根因。
+       改为在 document 捕获阶段听 scroll（任何元素滚动都会经过捕获链），
+       再用几何判断是否接近网格底部：容器自身可滚就用容器下沿，否则退回视口下沿。 */
+    if (gridTeardown) { gridTeardown(); gridTeardown = null; }
+
+    const raf = typeof requestAnimationFrame === 'function'
+      ? (fn) => requestAnimationFrame(fn)
+      : (fn) => setTimeout(fn, 16);
+
+    let pending = 0;
+    function nearEdge() {
+      if (!gridEl || !gridEl.isConnected) return false;
+      const r = gridEl.getBoundingClientRect();
+      const box = body.getBoundingClientRect();
+      /* 几何不可用（jsdom / 未挂载）时按「未知」处理：一次只放一批 */
+      if (!r.height && !box.height) return true;
+      const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+      const bodyScrolls = body.scrollHeight > body.clientHeight + 4;
+      const edge = bodyScrolls ? box.bottom : vh;
+      return r.bottom <= edge + 320;
+    }
+    function onScroll() {
       if (shown >= list.length) return;
-      if (body.scrollTop + body.clientHeight >= body.scrollHeight - 160) batch();
-    }, 80);
+      if (pending) return;
+      pending = raf(() => {
+        pending = 0;
+        if (shown >= list.length) return;
+        if (nearEdge()) batch();
+      });
+    }
+
+    document.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    more.addEventListener('click', () => { if (shown < list.length) batch(); });
+    more.style.cursor = 'pointer';
+
+    let io = null;
+    if (typeof IntersectionObserver === 'function') {
+      try {
+        io = new IntersectionObserver((es) => {
+          for (let i = 0; i < es.length; i++) if (es[i].isIntersecting) { onScroll(); break; }
+        }, { rootMargin: '400px' });
+        io.observe(more);
+      } catch (e) { io = null; }
+    }
+
+    gridTeardown = () => {
+      document.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+      if (io) { try { io.disconnect(); } catch (e) { /* noop */ } }
+      gridTeardown = null;
+    };
   }
 
   async function applyIcon(name) {
@@ -639,29 +722,65 @@ function mountIconPane(host, opts) {
 
     foot.appendChild(h('span', 'fi-label', '颜色'));
     const col = h('input', 'fi-in');
-    col.placeholder = ui.color || '跟随主题';
+    col.placeholder = '留空=跟随主题';
+    col.title = '只作用于这个文件夹的图标。留空即完全跟随主题；也可填 var(--primary-color) 这类主题变量。';
     col.value = (rec && rec.color) || '';
     foot.appendChild(col);
+
+    /* 取色器：只负责往文本框里写 hex，写完仍可手改成主题变量 */
+    const sw = h('input', 'fi-sw');
+    sw.type = 'color';
+    sw.title = '点此取色（写入 #rrggbb）';
+    sw.value = hexOf(col.value) || '#60a5fa';
+    sw.addEventListener('input', () => {
+      col.value = sw.value;
+      col.classList.remove('bad');
+    });
+    col.addEventListener('input', () => {
+      col.classList.remove('bad');
+      const hx = hexOf(col.value);
+      if (hx) sw.value = hx;
+    });
+    foot.appendChild(sw);
 
     foot.appendChild(h('span', 'fi-label', '角标'));
     const bdg = h('input', 'fi-in');
     bdg.style.width = '46px';
-    bdg.placeholder = ui.badge || '无';
+    bdg.placeholder = ui.badge ? '继承 ' + ui.badge : '无';
     bdg.maxLength = 3;
     bdg.value = (rec && rec.badge) || '';
     foot.appendChild(bdg);
 
-    const saveBtn = h('button', 'fi-btn', '保存样式');
-    saveBtn.addEventListener('click', async () => {
+    async function commitStyle(verbose) {
       const cur = getRec(target.path);
-      if (!cur) { C.ui.notice('请先选择一个图标'); return; }
+      if (!cur) { C.ui.notice('请先选择一个图标'); return false; }
       const c = col.value.trim(), b = bdg.value.trim();
+      if (c && !isCssColor(c)) {
+        col.classList.add('bad');
+        C.ui.notice('颜色写法无效：' + c + '（可用 #60a5fa / rosybrown / var(--primary-color)）', { kind: 'error' });
+        return false;
+      }
+      col.classList.remove('bad');
       if (c) cur.color = c; else delete cur.color;
       if (b) cur.badge = b.slice(0, 3); else delete cur.badge;
       await saveCfg();
       refreshTree();
-      C.ui.notice('样式已保存');
+      if (verbose) C.ui.notice('样式已保存');
+      return true;
+    }
+
+    /* 输入框失焦 / 回车即生效，不必再找「保存样式」按钮 */
+    col.addEventListener('change', () => { commitStyle(false).catch(() => {}); });
+    bdg.addEventListener('change', () => { commitStyle(false).catch(() => {}); });
+    bdg.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); commitStyle(true).catch(() => {}); }
     });
+    col.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); commitStyle(true).catch(() => {}); }
+    });
+
+    const saveBtn = h('button', 'fi-btn', '保存样式');
+    saveBtn.addEventListener('click', () => { commitStyle(true).catch(() => {}); });
     foot.appendChild(saveBtn);
 
     if (rec) {
@@ -1089,7 +1208,6 @@ module.exports = {
     C.settings.defineSchema([
       { key: 'enabled', label: '在文件树显示自定义图标', type: 'boolean' },
       { key: 'defaultIcon', label: '文件夹默认图标（Lucide 名称；留空则不装饰未单独设置的文件夹）', type: 'text', placeholder: 'folder' },
-      { key: 'color', label: '图标颜色（CSS 颜色或主题变量，留空跟随主题）', type: 'text', placeholder: 'var(--primary-color)' },
       { key: 'badge', label: '统一角标（最多 3 字符，留空不显示）', type: 'text' },
       { key: 'showTooltip', label: '悬停时显示文件夹名', type: 'boolean' },
       { key: 'rulesEnabled', label: '启用名称规则', type: 'boolean' },

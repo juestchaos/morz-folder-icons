@@ -93,6 +93,13 @@ const menuOf = (label) => caps.menus.find((m) => m.label.indexOf(label) === 0);
   check('网格首批 120 个', cells().length === 120, '实际 ' + cells().length);
   check('每格有 SVG', pop.querySelectorAll('.fi-cell .fi-svg svg').length === cells().length);
 
+  /* 1.5) 滚动加载：全屏视图里滚动条在外层容器上，所以监听必须挂 document 捕获阶段 */
+  const beforeScroll = cells().length;
+  document.dispatchEvent(new dom.window.Event('scroll'));
+  await wait(90);
+  check('document 上的 scroll 能触发续批', cells().length > beforeScroll,
+    beforeScroll + ' → ' + cells().length);
+
   /* 2) 搜索 */
   let input = pop.querySelector('.fi-search');
   input.value = '会议';
@@ -114,6 +121,42 @@ const menuOf = (label) => caps.menus.find((m) => m.label.indexOf(label) === 0);
 
   const d = caps.deco.decorate({ kind: 'directory', path: 'notes/项目', name: '项目' });
   check('文件树装饰已生效', !!d && d.icon.indexOf('<') === 0);
+
+  /* 3.5) 颜色：只作用于当前文件夹，非法值不落盘 */
+  const colIn = () => document.querySelectorAll('.fi-pop .fi-in')[0];
+  check('有取色器', !!document.querySelector('.fi-pop .fi-sw'));
+  check('颜色输入框提示跟随主题', colIn().placeholder.indexOf('跟随主题') >= 0, colIn().placeholder);
+
+  colIn().value = '不是颜色';
+  colIn().dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  await wait(60);
+  check('非法颜色不落盘',
+    !(store.config.folders['notes/项目'] || {}).color,
+    JSON.stringify(store.config.folders['notes/项目']));
+  check('非法颜色标红', colIn().classList.contains('bad'));
+
+  colIn().value = '#60a5fa';
+  colIn().dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  await wait(80);
+  check('合法颜色落盘', (store.config.folders['notes/项目'] || {}).color === '#60a5fa',
+    JSON.stringify(store.config.folders['notes/项目']));
+  const dcol = caps.deco.decorate({ kind: 'directory', path: 'notes/项目', name: '项目' });
+  check('装饰带 color', !!dcol && dcol.color === '#60a5fa', JSON.stringify(dcol && dcol.color));
+  check('其它文件夹未被污染',
+    !(store.config.folders['Notes/Case'] || {}).color,
+    JSON.stringify(store.config.folders['Notes/Case']));
+
+  colIn().value = '';
+  colIn().dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  await wait(80);
+  const dno = caps.deco.decorate({ kind: 'directory', path: 'notes/项目', name: '项目' });
+  check('清空颜色后回到跟随主题', !!dno && !('color' in dno), JSON.stringify(dno));
+
+  /* 恢复成有颜色状态，供后续断言使用 */
+  colIn().value = '#60a5fa';
+  colIn().dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  await wait(60);
+
 
   /* 4) 浮层内部点击不应关闭 */
   pop.querySelector('.fi-foot').dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }));

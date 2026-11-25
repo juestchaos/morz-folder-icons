@@ -32,7 +32,8 @@ const ctx = {
     async set(k, v) { store[k] = JSON.parse(JSON.stringify(v)); },
   },
   settings: {
-    async get() { return { defaultIcon: 'folder', enabled: true }; },
+    /* 模拟旧版残留：全局 color 项已删除，历史配置里可能还留着，必须被忽略 */
+    async get() { return { defaultIcon: 'folder', enabled: true, color: '#ff0000' }; },
     onChange() {},
     defineSchema(f) { captured.schema = f; },
   },
@@ -91,7 +92,8 @@ const check = (name, cond, extra) => {
     captured.menus.some((m) => m.when === 'any'));
   check('注册了 3 个命令', captured.commands.length === 3);
   check('注册了视图', captured.views.length === 1 && captured.views[0].id === 'folder-icons:view');
-  check('settings schema 6 项', captured.schema.length === 6);
+  check('settings schema 5 项', captured.schema.length === 5, JSON.stringify(captured.schema.map((x) => x.key)));
+  check('全局颜色项已移除（颜色按文件夹独立）', !captured.schema.some((x) => x.key === 'color'));
 
   const deco = captured.deco[0].decorate;
 
@@ -106,6 +108,15 @@ const check = (name, cond, extra) => {
     JSON.stringify(Object.keys(store.config.folders)));
   check('脏 key 归一后仍能命中', !!deco({ kind: 'directory', path: 'notes/周报/', name: '周报' }));
   check('大小写不一致仍能命中', !!deco({ kind: 'directory', path: 'notes/case', name: 'case' }));
+
+  /* 颜色按文件夹孤立：settings 里残留旧版全局 color 也不得外溢 */
+  check('无 color 记录的文件夹不传 color 字段',
+    d1 && !('color' in d1), JSON.stringify(d1));
+  check('仅有全局默认图标的文件夹也不传 color 字段',
+    (() => { const t = deco({ kind: 'directory', path: 'notes/其他', name: '其他' }); return t && !('color' in t); })(),
+    JSON.stringify(deco({ kind: 'directory', path: 'notes/其他', name: '其他' })));
+
+  /* 反向：文件夹自己带 color 时必须传下去（写入路径由 test-ui 走真实 UI 覆盖） */
 
   /* 改名迁移：目录整体移动（旧目录已无文件） */
   const before = refreshCount;

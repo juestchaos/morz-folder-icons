@@ -1044,6 +1044,8 @@ function injectStyle() {
 .fi-search{flex:1;min-width:0;padding:6px 10px;border-radius:6px;border:1px solid var(--background-modifier-border,#333);background:var(--ui-bg,transparent);color:inherit;font:inherit;outline:none}
 .fi-search:focus{border-color:var(--primary-color,#60a5fa)}
 .fi-body{flex:1;min-height:0;overflow:auto;padding:6px 12px 12px}
+/* 视图页：左右留白与顶部 Tab 栏对齐（12px vs 14px 会让说明文字看着偏左） */
+.fi-page{padding:12px 14px 16px}
 .fi-target{display:flex;gap:8px;align-items:center;padding:0 12px 6px;flex-wrap:wrap}
 .fi-target b{font-weight:600}
 .fi-target code{padding:2px 6px;border-radius:4px;background:var(--ui-hover,rgba(128,128,128,.15));font-size:12px}
@@ -1066,18 +1068,36 @@ function injectStyle() {
 .fi-sw::-webkit-color-swatch-wrapper{padding:2px}
 .fi-sw::-webkit-color-swatch{border:0;border-radius:4px}
 .fi-label{opacity:.6;font-size:11px}
-.fi-row{display:grid;grid-template-columns:32px 92px 1fr 124px auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--background-modifier-border,#2a2a2a)}
-.fi-row-head{border-bottom:1px solid var(--background-modifier-border,#333);font-size:11px;opacity:.5;padding-bottom:5px}
-.fi-iconbtn{display:flex;align-items:center;justify-content:center;width:30px;height:26px;padding:0;border-radius:6px;
+/* 宿主的全局 CSS 不保证 border-box；不锁住的话 100% 宽的输入框会溢出栅格、压到下一列上 */
+.fi-root,.fi-root *,.fi-pop,.fi-pop *{box-sizing:border-box}
+/* 末列给删除按钮固定 52px：列头那格是空的，用 auto 会塌成 0，导致列头与数据行错位 */
+.fi-row{display:grid;grid-template-columns:30px 88px minmax(140px,420px) minmax(96px,132px) 52px;
+  justify-content:start;column-gap:12px;align-items:center;padding:9px 0;
+  border-bottom:1px solid var(--background-modifier-border,#2a2a2a)}
+.fi-row>*{min-width:0}
+.fi-row-head{border-bottom:1px solid var(--background-modifier-border,#333);font-size:11px;
+  letter-spacing:.02em;opacity:.5;padding:0 0 7px}
+/* 一行里所有控件同高，不再出现下拉比输入框高半头 */
+.fi-row select,.fi-row .fi-in,.fi-row .fi-btn,.fi-iconbtn,.fi-namebtn{height:28px;font-size:12px}
+.fi-row .fi-btn{padding:0 12px}
+.fi-iconbtn{display:flex;align-items:center;justify-content:center;width:30px;padding:0;border-radius:6px;
   border:1px solid var(--background-modifier-border,#333);background:none;color:inherit;cursor:pointer}
 .fi-iconbtn:hover{border-color:var(--primary-color,#60a5fa);background:var(--ui-hover,rgba(128,128,128,.15))}
-.fi-namebtn{display:flex;align-items:center;gap:4px;min-width:0;padding:4px 8px;border-radius:6px;
-  border:1px solid var(--background-modifier-border,#333);background:none;color:inherit;font:inherit;font-size:12px;cursor:pointer;text-align:left}
+.fi-namebtn{display:flex;align-items:center;gap:4px;padding:0 8px;border-radius:6px;
+  border:1px solid var(--background-modifier-border,#333);background:none;color:inherit;font:inherit;
+  font-size:12px;cursor:pointer;text-align:left;overflow:hidden}
 .fi-namebtn span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fi-namebtn .cv{flex:none;opacity:.45;font-size:10px}
 .fi-namebtn:hover{border-color:var(--primary-color,#60a5fa);background:var(--ui-hover,rgba(128,128,128,.15))}
 .fi-namebtn.empty{opacity:.85;border-style:dashed;color:var(--primary-color,#60a5fa)}
-.fi-row select{padding:4px 6px;border-radius:6px;border:1px solid var(--background-modifier-border,#333);background:var(--ui-bg,transparent);color:inherit;font:inherit;font-size:12px}
+.fi-row select{padding:0 6px;border-radius:6px;border:1px solid var(--background-modifier-border,#333);
+  background:var(--ui-bg,transparent);color:inherit;font:inherit;font-size:12px;cursor:pointer}
+.fi-row .fi-in{padding:0 8px}
+/* 说明文案：一句讲用途，一句讲规则；和工具条之间留出呼吸 */
+.fi-lead{margin:2px 0 5px;font-size:13px;line-height:1.6}
+.fi-note{margin:0 0 16px;font-size:12px;line-height:1.6;opacity:.55}
+.fi-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.fi-toolbar .fi-count{margin:0}
 .fi-hint{opacity:.55;font-size:12px;line-height:1.7;margin:6px 0 10px}
 .fi-sub{margin:16px 0 4px;font-size:12px;font-weight:600;opacity:.8;letter-spacing:.02em}
 .fi-sum{display:flex;align-items:baseline;gap:5px;padding:10px 12px;margin:2px 0 12px;border-radius:8px;background:var(--ui-hover,rgba(128,128,128,.12))}
@@ -1122,6 +1142,8 @@ function injectStyle() {
 .fi-pop-head .x{margin-left:auto;flex:none;border:0;background:none;color:inherit;cursor:pointer;
   font-size:16px;line-height:1;padding:3px 7px;border-radius:5px;opacity:.55}
 .fi-pop-head .x:hover{opacity:1;background:var(--ui-hover,rgba(128,128,128,.15))}
+/* 名称规则的挑选浮层：比文件夹浮层矮一档，尽量落在所点按钮下方，不盖住正在编辑的那一行 */
+.fi-pop-pick{width:440px;max-height:min(56vh,440px)}
 `;
   const style = document.createElement('style');
   style.textContent = css;
@@ -1495,13 +1517,12 @@ function mountIconPane(host, opts) {
 function paintRules(host) {
   host.replaceChildren();
 
-  host.appendChild(h('div', 'fi-hint',
-    '名称规则：按文件夹的名字批量套图标，不用一个个点。'
-    + '例：加一条「包含 会议 → calendar」，之后名字里带“会议”的文件夹都自动换成日历图标，新建的也立刻生效。'));
-  host.appendChild(h('div', 'fi-hint',
-    '从上往下取第一条命中。优先级：单独设过的图标 ＞ 名称规则 ＞ 全局默认图标。'
-    + '规则只换图标，不改颜色。点每行左边的图标或名字即可挑选，不用记图标名。'));
+  host.appendChild(h('p', 'fi-lead',
+    '名字命中关键词的文件夹，统一换成指定图标；新建的同类文件夹自动跟上。'));
+  host.appendChild(h('p', 'fi-note',
+    '自上而下取第一条命中；手动设过图标的文件夹优先。规则只换图标，不改颜色。'));
 
+  const bar = h('div', 'fi-toolbar');
   const addBtn = h('button', 'fi-btn', '+ 新增规则');
   addBtn.addEventListener('click', async () => {
     /* 新规则故意不预置图标：没选图标前这条规则不生效，避免「看起来没反应」 */
@@ -1510,7 +1531,9 @@ function paintRules(host) {
     refreshTree();
     paintRules(host);
   });
-  host.appendChild(addBtn);
+  bar.appendChild(addBtn);
+  if (cfg.rules.length) bar.appendChild(h('span', 'fi-count', cfg.rules.length + ' 条'));
+  host.appendChild(bar);
 
   if (!cfg.rules.length) {
     host.appendChild(h('div', 'fi-empty',
@@ -1518,12 +1541,13 @@ function paintRules(host) {
     return;
   }
 
-  /* 列头：四个格子依次是 图标 / 条件 / 关键词 / 套用图标 */
+  /* 列头：四个格子依次是 图标 / 条件 / 关键词 / 套用图标；末列留给删除按钮占位，保证列宽与数据行一致 */
   const head = h('div', 'fi-row fi-row-head');
   head.appendChild(h('span', null, '图标'));
   head.appendChild(h('span', null, '判断方式'));
   head.appendChild(h('span', null, '文件夹名里的关键词'));
   head.appendChild(h('span', null, '套用图标'));
+  head.appendChild(h('span'));
   host.appendChild(head);
 
   const wrap = h('div');
@@ -1850,12 +1874,12 @@ function paintView(container) {
     container.appendChild(root);
     mountIconPane(pane, { compact: false, autofocus: false });
   } else if (viewTab === 'data') {
-    const body = h('div', 'fi-body');
+    const body = h('div', 'fi-body fi-page');
     root.appendChild(body);
     container.appendChild(root);
     paintData(body);
   } else {
-    const body = h('div', 'fi-body');
+    const body = h('div', 'fi-body fi-page');
     root.appendChild(body);
     container.appendChild(root);
     paintRules(body);
@@ -2000,17 +2024,22 @@ function openPickerAt(anchorEl, curIcon, onPick) {
     },
   });
 
-  /* 贴着按钮定位：下方放不下就翻到上方，左右回夹进视口 */
-  const W = el.offsetWidth || 472;
-  const H = el.offsetHeight || 320;
+  /* 贴着按钮定位：优先向下展开，下方明显不够再翻到上方，最后回夹进视口 */
+  const W = el.offsetWidth || 440;
+  const H = el.offsetHeight || 360;
   const r = anchorEl && anchorEl.getBoundingClientRect ? anchorEl.getBoundingClientRect() : null;
   const vw = window.innerWidth || 1200;
   const vh = window.innerHeight || 800;
+  const gap = 6;
+  const below = r ? vh - (r.bottom + gap) : vh - 140;
+  const above = r ? r.top - gap : 0;
   let px = r ? r.left - 20 : Math.round(vw / 2 - W / 2);
-  let py = r ? r.bottom + 6 : 140;
-  if (py + H > vh - 10) py = r ? Math.max(10, r.top - H - 6) : Math.max(10, vh - H - 10);
-  px = Math.max(10, Math.min(px, vw - W - 10));
-  py = Math.max(10, Math.min(py, vh - H - 10));
+  let py;
+  if (!r) py = 140;
+  else if (H <= below || below >= above) py = r.bottom + gap;
+  else py = r.top - H - gap;
+  px = Math.max(8, Math.min(px, vw - W - 8));
+  py = Math.max(8, Math.min(py, vh - H - 8));
   el.style.left = px + 'px';
   el.style.top = py + 'px';
   el.style.visibility = '';

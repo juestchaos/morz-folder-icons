@@ -260,7 +260,7 @@ morz-folder-icons/
 ├── icon.svg            # 24px 线性图标
 ├── icon-128.svg/.png   # 商店图标（128×128）
 ├── test.js              # mock host 测试（22 项）
-├── test-ui.js           # jsdom 浮层/视图测试（73 项）
+├── test-ui.js           # jsdom 浮层/视图测试（76 项）
 ├── test-scroll.js       # 滚动加载几何分支测试（6 项）
 └── test-multiws.js      # 多库隔离测试（21 项）
 ```

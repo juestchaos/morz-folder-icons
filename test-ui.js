@@ -216,7 +216,7 @@ const menuOf = (label) => caps.menus.find((m) => m.label.indexOf(label) === 0);
   const rulesTab = Array.from(ws.querySelectorAll('.fi-tab')).find((b) => b.textContent === '名称规则');
   rulesTab.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
   await wait(50);
-  check('规则页可切换', !!ws.querySelector('.fi-hint'));
+  check('规则页可切换', !!ws.querySelector('.fi-lead'));
   const addBtn = Array.from(ws.querySelectorAll('.fi-btn')).find((b) => /新增规则/.test(b.textContent));
   addBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
   await wait(80);
@@ -230,6 +230,14 @@ const menuOf = (label) => caps.menus.find((m) => m.label.indexOf(label) === 0);
     String(ruleRow().querySelectorAll('input').length));
   check('规则行有列头', !!ws.querySelector('.fi-row-head'),
     ws.querySelector('.fi-row-head') ? ws.querySelector('.fi-row-head').textContent : 'none');
+  check('列头与数据行格子数一致（否则列宽会错位）',
+    ws.querySelector('.fi-row-head').children.length === ruleRow().children.length,
+    ws.querySelector('.fi-row-head').children.length + ' vs ' + ruleRow().children.length);
+
+  /* 宿主全局 CSS 不保证 border-box：插件必须自带兜底，否则 100% 宽的输入框会压到下一列 */
+  const cssTxt = Array.from(document.querySelectorAll('style')).map((s) => s.textContent).join('\n');
+  check('样式里锁了 border-box', cssTxt.indexOf('box-sizing:border-box') >= 0);
+  check('规则行控件统一高度', cssTxt.indexOf('.fi-row select,.fi-row .fi-in,.fi-row .fi-btn,.fi-iconbtn,.fi-namebtn{height:28px') >= 0);
 
   ruleRow().querySelector('.fi-iconbtn').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
   await wait(80);
@@ -253,7 +261,7 @@ const menuOf = (label) => caps.menus.find((m) => m.label.indexOf(label) === 0);
   check('按钮回显新图标名',
     ruleRow().querySelector('.fi-namebtn').textContent.indexOf('rocket') >= 0,
     ruleRow().querySelector('.fi-namebtn').textContent);
-  check('规则页重绘后仍停在规则页', !!ws.querySelector('.fi-hint') && !!ruleRow());
+  check('规则页重绘后仍停在规则页', !!ws.querySelector('.fi-lead') && !!ruleRow());
 
   /* 关键词才决定命中范围：只影响名字带它的文件夹 */
   const patIn = ruleRow().querySelector('input');

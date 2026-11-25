@@ -21,6 +21,12 @@ global.document = {
 
 const path = require('path');
 const store = {};
+/* 配置落盘是 v3 的分库结构，测试统一用当前库那一份 */
+const curCfg = () => {
+  const c = store.config;
+  if (c && c.byWs) return c.byWs[c.last] || { folders: {}, rules: [] };
+  return c || { folders: {}, rules: [] };
+};
 const captured = { deco: [], menus: [], commands: [], views: [], schema: [], status: [] };
 let renameHandler = null;
 let refreshCount = 0;
@@ -104,8 +110,8 @@ const check = (name, cond, extra) => {
   check('文件 → 不装饰', deco({ kind: 'file', path: 'notes/项目/a.md', name: 'a.md' }) === null);
   check('命中名称规则 会议 → calendar', !!deco({ kind: 'directory', path: 'notes/会议', name: '会议' }));
   check('装载时把反斜杠/尾斜杠的 key 归一',
-    !!store.config.folders['notes/周报'] && !store.config.folders['notes\\周报\\'],
-    JSON.stringify(Object.keys(store.config.folders)));
+    !!curCfg().folders['notes/周报'] && !curCfg().folders['notes\\周报\\'],
+    JSON.stringify(Object.keys(curCfg().folders)));
   check('脏 key 归一后仍能命中', !!deco({ kind: 'directory', path: 'notes/周报/', name: '周报' }));
   check('大小写不一致仍能命中', !!deco({ kind: 'directory', path: 'notes/case', name: 'case' }));
 
@@ -126,16 +132,16 @@ const check = (name, cond, extra) => {
   const d2 = deco({ kind: 'directory', path: 'archive/新项目', name: '新项目' });
   check('文件夹改名后图标跟随', d2 && d2.icon === d1.icon);
   check('改名后触发 refresh', refreshCount === before + 1);
-  check('旧 key 已清理', !store.config.folders['notes/项目'],
-    JSON.stringify(Object.keys(store.config.folders)));
+  check('旧 key 已清理', !curCfg().folders['notes/项目'],
+    JSON.stringify(Object.keys(curCfg().folders)));
 
   /* 反例：只移动单个文件，不应改动文件夹图标 */
-  store.config.folders['notes/其他'] = { icon: 'star' };
+  curCfg().folders['notes/其他'] = { icon: 'star' };
   vaultFiles = ['notes/其他/b.md', 'inbox/c.md'];
   renameHandler('notes/其他/b.md', 'inbox/b.md');
   await new Promise((r) => setTimeout(r, 600));
-  check('单文件移动不误改文件夹图标', !!store.config.folders['notes/其他'],
-    JSON.stringify(Object.keys(store.config.folders)));
+  check('单文件移动不误改文件夹图标', !!curCfg().folders['notes/其他'],
+    JSON.stringify(Object.keys(curCfg().folders)));
 
   /* 输出 */
   console.log('');

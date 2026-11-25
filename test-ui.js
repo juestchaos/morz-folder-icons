@@ -17,6 +17,12 @@ global.DocumentFragment = dom.window.DocumentFragment;
 global.Event = dom.window.Event;
 
 const store = {};
+/* 配置落盘是 v3 的分库结构，测试统一用当前库那一份 */
+const curCfg = () => {
+  const c = store.config;
+  if (c && c.byWs) return c.byWs[c.last] || { folders: {}, rules: [] };
+  return c || { folders: {}, rules: [] };
+};
 const vaultFS = {};
 const caps = { deco: null, menus: [], views: null, status: [], commands: [], events: {} };
 
@@ -122,8 +128,8 @@ const menuOf = (label) => caps.menus.find((m) => m.label.indexOf(label) === 0);
   calCell.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
   await wait(120);
   check('点选后浮层仍打开', !!document.querySelector('.fi-pop'));
-  check('配置已写入', (store.config.folders['notes/项目'] || {}).icon === 'calendar',
-    JSON.stringify(store.config.folders));
+  check('配置已写入', (curCfg().folders['notes/项目'] || {}).icon === 'calendar',
+    JSON.stringify(curCfg().folders));
   check('选中格有高亮', !!pop.querySelector('.fi-cell.on'));
   check('来源提示改为已单独设置', pop.querySelector('.fi-src') && pop.querySelector('.fi-src').textContent.indexOf('单独设置') >= 0, pop.querySelector('.fi-src') ? pop.querySelector('.fi-src').textContent : 'none');
 
@@ -139,20 +145,20 @@ const menuOf = (label) => caps.menus.find((m) => m.label.indexOf(label) === 0);
   colIn().dispatchEvent(new dom.window.Event('change', { bubbles: true }));
   await wait(60);
   check('非法颜色不落盘',
-    !(store.config.folders['notes/项目'] || {}).color,
-    JSON.stringify(store.config.folders['notes/项目']));
+    !(curCfg().folders['notes/项目'] || {}).color,
+    JSON.stringify(curCfg().folders['notes/项目']));
   check('非法颜色标红', colIn().classList.contains('bad'));
 
   colIn().value = '#60a5fa';
   colIn().dispatchEvent(new dom.window.Event('change', { bubbles: true }));
   await wait(80);
-  check('合法颜色落盘', (store.config.folders['notes/项目'] || {}).color === '#60a5fa',
-    JSON.stringify(store.config.folders['notes/项目']));
+  check('合法颜色落盘', (curCfg().folders['notes/项目'] || {}).color === '#60a5fa',
+    JSON.stringify(curCfg().folders['notes/项目']));
   const dcol = caps.deco.decorate({ kind: 'directory', path: 'notes/项目', name: '项目' });
   check('装饰带 color', !!dcol && dcol.color === '#60a5fa', JSON.stringify(dcol && dcol.color));
   check('其它文件夹未被污染',
-    !(store.config.folders['Notes/Case'] || {}).color,
-    JSON.stringify(store.config.folders['Notes/Case']));
+    !(curCfg().folders['Notes/Case'] || {}).color,
+    JSON.stringify(curCfg().folders['Notes/Case']));
 
   colIn().value = '';
   colIn().dispatchEvent(new dom.window.Event('change', { bubbles: true }));
@@ -214,7 +220,7 @@ const menuOf = (label) => caps.menus.find((m) => m.label.indexOf(label) === 0);
   const addBtn = Array.from(ws.querySelectorAll('.fi-btn')).find((b) => /新增规则/.test(b.textContent));
   addBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
   await wait(80);
-  check('新增规则写入配置', store.config.rules.length === 1, JSON.stringify(store.config.rules));
+  check('新增规则写入配置', curCfg().rules.length === 1, JSON.stringify(curCfg().rules));
 
   /* 10) 总览（无目标） */
   menuOf('文件夹图标总览').run({ workspaceId: 'ws1', path: 'notes/项目', name: '项目', kind: 'background' });
@@ -227,13 +233,13 @@ const menuOf = (label) => caps.menus.find((m) => m.label.indexOf(label) === 0);
   await wait(60);
   const code = ws.querySelector('.fi-code');
   check('数据页展示 JSON', !!code && code.textContent.indexOf('notes/项目') >= 0, code ? code.textContent.slice(0, 40) : 'none');
-  check('数据页含版本号 v', !!code && code.textContent.indexOf('"v": 2') >= 0);
+  check('数据页含版本号 v', !!code && code.textContent.indexOf('"v": 3') >= 0);
   const ta = ws.querySelector('.fi-code-input');
   ta.value = JSON.stringify({ folders: { 'a/b': { icon: 'star' }, 'bad': { icon: 'no-such-icon' } } });
   const impBtn = Array.from(ws.querySelectorAll('.fi-btn')).find((b) => b.textContent === '恢复');
   impBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
   await wait(120);
-  check('导入只接受有效条目', !!store.config.folders['a/b'] && !store.config.folders['bad'], JSON.stringify(Object.keys(store.config.folders)));
+  check('导入只接受有效条目', !!curCfg().folders['a/b'] && !curCfg().folders['bad'], JSON.stringify(Object.keys(curCfg().folders)));
 
   /* 12) 数据页文案：不能出现开发话术 */
   const pageText = ws.textContent;
@@ -252,7 +258,8 @@ const menuOf = (label) => caps.menus.find((m) => m.label.indexOf(label) === 0);
   check('切到库内文件后写盘', !!vaultFS['.folder-icons.json'], JSON.stringify(Object.keys(vaultFS)));
   let fileData = null;
   try { fileData = JSON.parse(vaultFS['.folder-icons.json']); } catch (e) { fileData = null; }
-  check('库文件内容与当前设置一致', !!fileData && !!fileData.folders['a/b'], JSON.stringify(fileData && Object.keys(fileData.folders)));
+  check('库文件是分库结构 v3', !!fileData && fileData.v === 3 && !!fileData.byWs, JSON.stringify(fileData && Object.keys(fileData)));
+  check('库文件内容与当前设置一致', !!fileData && JSON.stringify(fileData.byWs).indexOf('a/b') >= 0, String(vaultFS['.folder-icons.json']).slice(0, 80));
   check('切换后选中态更新', segOn() === '库内文件', String(segOn()));
 
   /* 14) 库内模式下的后续改动要同步进文件 */
@@ -272,8 +279,8 @@ const menuOf = (label) => caps.menus.find((m) => m.label.indexOf(label) === 0);
   check('已注册库文件改动监听', typeof caps.events.modify === 'function', Object.keys(caps.events).join(','));
   if (caps.events.modify) caps.events.modify('.folder-icons.json');
   await wait(520);
-  check('外部改动库文件后自动读回', !!store.config.folders['ext/only'],
-    JSON.stringify(Object.keys(store.config.folders)));
+  check('外部改动库文件后自动读回', !!curCfg().folders['ext/only'],
+    JSON.stringify(Object.keys(curCfg().folders)));
 
   /* 16) 「读库根目录的文件」按钮 */
   vaultFS['.folder-icons.json'] = JSON.stringify({ folders: { 'btn/only': { icon: 'star' } }, rules: [] });
@@ -281,8 +288,8 @@ const menuOf = (label) => caps.menus.find((m) => m.label.indexOf(label) === 0);
   check('数据页有「读库根目录的文件」', !!fromFileBtn);
   fromFileBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
   await wait(150);
-  check('从库文件恢复成功', !!store.config.folders['btn/only'],
-    JSON.stringify(Object.keys(store.config.folders)));
+  check('从库文件恢复成功', !!curCfg().folders['btn/only'],
+    JSON.stringify(Object.keys(curCfg().folders)));
 
   /* 输出 */
   console.log('');

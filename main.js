@@ -450,10 +450,22 @@ const VIEW_ID = 'folder-icons:view';
 const VAULT_FILE = '.folder-icons.json';
 
 let C = null;                       // ctx
-let cfg = { folders: {}, rules: [] };
 /* 'plugin' = 插件私有存储（本机默认）；'vault' = 库根目录下的 .folder-icons.json */
 let storeMode = 'plugin';
 let lastWritten = '';               // 本插件最近一次写进库文件的原文，用来识别「自己写的」事件
+
+/* ---------------- 多库隔离 ----------------
+ * 宿主的 ctx.storage 只按「插件 id」隔离，不区分笔记库。若 E:\test 和 D:\test 里都有
+ * projects/ 这种同名目录，扁平存一份配置就会互相串用——在 A 库设的图标跑到 B 库去。
+ * 所以落盘改成按库分区：byWs[库标识] = { folders, rules }，cfg 始终指向「当前库」那一份。
+ * 库标识来源优先级：宿主给的文件树行 workspaceId > 右键目标 workspaceId > 上次用的库。
+ */
+let byWs = {};                      // { wsKey: { folders, rules } }
+let currentWs = 'default';
+let cfg = { folders: {}, rules: [] };   // 与 byWs[currentWs] 同一个对象，后者改动即时可见
+let legacyPending = false;          // 升级前的扁平配置，等认出真实库时整份搬过去
+let wsDiag = { entryWs: null };     // entry 是否带 workspaceId：null 未知 / true 有 / false 没有
+let wsRepaint = false;              // 装饰过程中途切了库，需要补一次重绘
 let ui = {
   enabled: true, defaultIcon: '', badge: '',
   showTooltip: true, rulesEnabled: true,
@@ -548,6 +560,41 @@ function searchIcons(q) {
 
 /* ---------------- 配置读写 ---------------- */
 
+function wsKeyOf(v) {
+  if (typeof v !== 'string') return 'default';
+  const s = v.trim();
+  return s || 'default';
+}
+
+/** 让 cfg 指向某个库的分区；该库首次露面时才建表 */
+function activateWs(key) {
+  const k = wsKeyOf(key);
+  if (!byWs[k]) byWs[k] = { folders: {}, rules: [] };
+  currentWs = k;
+  cfg = byWs[k];
+  reindex();
+  regexCache.clear();
+}
+
+/**
+ * 切到另一个库。返回是否真的切了。
+ * 升级前的扁平配置属于「当时那个库」，第一次认出真实库标识时整份搬过去，避免升级后图标消失。
+ */
+function switchWs(key) {
+  const k = wsKeyOf(key);
+  if (k === currentWs) return false;
+  if (legacyPending && k !== 'default') {
+    const old = byWs.default;
+    const cur = byWs[k];
+    const empty = !cur || (!Object.keys(cur.folders).length && !cur.rules.length);
+    legacyPending = false;
+    if (old && empty) byWs[k] = old;
+    delete byWs.default;
+  }
+  activateWs(k);
+  return true;
+}
+
 async function loadCfg() {
   try { storeMode = (await C.storage.get(MODE_KEY)) === 'vault' ? 'vault' : 'plugin'; }
   catch (e) { storeMode = 'plugin'; }
@@ -556,35 +603,70 @@ async function loadCfg() {
   try { raw = await C.storage.get(STORE_KEY); } catch (e) { raw = null; }
 
   /* 库内模式：以库文件为准；文件不存在就用本机副本补写一份 */
+  let seedVault = false;
   if (storeMode === 'vault') {
     const fromFile = await readVaultCfg();
     if (fromFile) raw = fromFile;
-    else if (raw) await writeVaultCfg(snapshotOf(raw));
+    else if (raw) seedVault = true;
   }
 
-  cfg = {
-    folders: (raw && raw.folders && typeof raw.folders === 'object') ? raw.folders : {},
-    rules: (raw && Array.isArray(raw.rules)) ? raw.rules : [],
-  };
-  /* 旧数据可能带反斜杠 / 尾斜杠，装载时统一口径并去重 */
-  const clean = {};
-  const keys = Object.keys(cfg.folders);
-  let dirty = false;
-  for (let i = 0; i < keys.length; i++) {
-    const k = normPath(keys[i]);
-    if (!k || clean[k]) { dirty = true; continue; }
-    if (k !== keys[i]) dirty = true;
-    clean[k] = cfg.folders[keys[i]];
+  byWs = {};
+  legacyPending = false;
+
+  const part = (p) => ({
+    folders: (p && p.folders && typeof p.folders === 'object') ? p.folders : {},
+    rules: (p && Array.isArray(p.rules)) ? p.rules : [],
+  });
+
+  if (raw && raw.byWs && typeof raw.byWs === 'object' && !Array.isArray(raw.byWs)) {
+    const ks = Object.keys(raw.byWs);
+    for (let i = 0; i < ks.length; i++) {
+      if (raw.byWs[ks[i]] && typeof raw.byWs[ks[i]] === 'object') byWs[ks[i]] = part(raw.byWs[ks[i]]);
+    }
+    let startKey = 'default';
+    if (raw.last && byWs[raw.last]) startKey = raw.last;
+    else { const k0 = Object.keys(byWs)[0]; if (k0) startKey = k0; }
+    activateWs(startKey);
+  } else if (raw && raw.folders && typeof raw.folders === 'object') {
+    /* v2 及更早：一份扁平配置，无从得知属于哪个库 */
+    byWs.default = part(raw);
+    legacyPending = true;
+    activateWs('default');
+  } else {
+    activateWs('default');
   }
-  cfg.folders = clean;
+
+  /* 路径口径统一：反斜杠 / 重复分隔符 / 首尾斜杠；跨库一起清 */
+  let dirty = false;
+  const wkeys = Object.keys(byWs);
+  for (let w = 0; w < wkeys.length; w++) {
+    const box = byWs[wkeys[w]];
+    const clean = {};
+    const keys = Object.keys(box.folders);
+    for (let i = 0; i < keys.length; i++) {
+      const k = normPath(keys[i]);
+      if (!k || clean[k]) { dirty = true; continue; }
+      if (k !== keys[i]) dirty = true;
+      clean[k] = box.folders[keys[i]];
+    }
+    box.folders = clean;
+  }
   reindex();
   regexCache.clear();
+
+  if (seedVault) await writeVaultCfg(vaultSnapshot());
   if (dirty) await saveCfg();      // 归一结果落盘，避免每次启动都重算
 }
 
-function snapshotOf(src) {
-  const s = src || cfg;
-  return { v: 2, folders: s.folders || {}, rules: s.rules || [] };
+function snapshotOf() {
+  return { v: 3, byWs: byWs, last: currentWs };
+}
+
+/* 库内文件属于某个具体的库，只写这个库那一份，别把其它库的配置搬进来 */
+function vaultSnapshot() {
+  const one = {};
+  one[currentWs] = { folders: cfg.folders, rules: cfg.rules };
+  return { v: 3, byWs: one, last: currentWs };
 }
 
 async function saveCfg(opts) {
@@ -594,7 +676,7 @@ async function saveCfg(opts) {
     C.ui.notice('保存失败：' + (e && e.message ? e.message : e), { kind: 'error' });
   }
   /* keepVaultFile：只更新本机副本，不回写库文件（外部改动读回时用，避免覆盖用户的排版） */
-  if (storeMode === 'vault' && !(opts && opts.keepVaultFile)) await writeVaultCfg(snapshotOf());
+  if (storeMode === 'vault' && !(opts && opts.keepVaultFile)) await writeVaultCfg(vaultSnapshot());
 }
 
 /* ---------------- 库内文件存储 ---------------- */
@@ -631,7 +713,7 @@ async function setStoreMode(mode) {
   const next = mode === 'vault' ? 'vault' : 'plugin';
   if (next === storeMode) return true;
   if (next === 'vault') {
-    const ok = await writeVaultCfg(snapshotOf());
+    const ok = await writeVaultCfg(vaultSnapshot());
     if (!ok) return false;
   }
   storeMode = next;
@@ -652,7 +734,7 @@ function onVaultFileTouched(p) {
     let txt = '';
     try { txt = await C.vault.read(VAULT_FILE); } catch (e) { return; }
     if (!txt || txt === lastWritten) return;      // 自己刚写的那次，忽略
-    const res = importCfg(txt);
+    const res = importCfg(txt, true);
     if (typeof res === 'string') {
       C.ui.notice('库内图标文件读不了：' + res, { kind: 'error' });
       return;
@@ -800,11 +882,33 @@ function ruleIconOf(name) {
   return '';
 }
 
+/** 装饰中途发现换了库：本批行已经按旧表画过，补一次重绘（限流，避免与宿主刷新互相触发） */
+function scheduleWsRepaint() {
+  if (wsRepaint) return;
+  wsRepaint = true;
+  setTimeout(() => {
+    wsRepaint = false;
+    saveCfg();                  // 把切库结果落盘，避免重启后又回到上一个库
+    refreshTree();
+    if (activeContainer && activeContainer.isConnected) repaintView();
+  }, 40);
+}
+
 function decorateRow(entry) {
   if (!ui.enabled) return null;
   if (!entry || !isDir(entry)) return null;
   const path = normPath(entryPath(entry));
   if (!path) return null;
+
+  /* 宿主若在文件树行上给出 workspaceId，就以它为准切库；没给则沿用当前库 */
+  const wsRaw = entry.workspaceId || entry.vaultId
+    || (entry.workspace && entry.workspace.id) || (entry.vault && entry.vault.id) || '';
+  if (wsRaw) {
+    wsDiag.entryWs = true;
+    if (wsKeyOf(wsRaw) !== currentWs && switchWs(wsRaw)) scheduleWsRepaint();
+  } else if (wsDiag.entryWs === null) {
+    wsDiag.entryWs = false;
+  }
 
   const rec = getRec(path);
   const icon = (rec && rec.icon) || ruleIconOf(baseOf(path)) || ui.defaultIcon;
@@ -940,12 +1044,15 @@ function injectStyle() {
 .fi-target{display:flex;gap:8px;align-items:center;padding:0 12px 6px;flex-wrap:wrap}
 .fi-target b{font-weight:600}
 .fi-target code{padding:2px 6px;border-radius:4px;background:var(--ui-hover,rgba(128,128,128,.15));font-size:12px}
-.fi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:3px}
-.fi-cell{display:flex;align-items:center;justify-content:center;height:40px;border-radius:6px;border:1px solid transparent;background:none;color:inherit;cursor:pointer;position:relative;padding:0}
+.fi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:6px}
+.fi-cell{display:flex;align-items:center;justify-content:center;height:62px;border-radius:6px;border:1px solid transparent;background:none;color:inherit;cursor:pointer;position:relative;padding:0}
 .fi-cell:hover{background:var(--ui-hover,rgba(128,128,128,.15))}
 .fi-cell.on{border-color:var(--primary-color,#60a5fa);background:var(--ui-hover,rgba(128,128,128,.15))}
-.fi-cell .fi-name{position:absolute;bottom:0;left:0;right:0;text-align:center;font-size:8px;opacity:.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fi-cell .fi-name{position:absolute;bottom:4px;left:2px;right:2px;text-align:center;font-size:11px;line-height:1.15;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fi-empty{padding:22px 10px;text-align:center;opacity:.6;font-size:12px}
+.fi-wide .fi-grid{grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:10px}
+.fi-wide .fi-cell{height:94px;border-radius:9px}
+.fi-wide .fi-cell .fi-name{font-size:12px;bottom:8px;opacity:.74}
 .fi-foot{display:flex;gap:6px;align-items:center;padding:8px 12px;border-top:1px solid var(--background-modifier-border,#333);flex-wrap:wrap}
 .fi-btn{padding:4px 10px;border-radius:6px;border:1px solid var(--background-modifier-border,#333);background:none;color:inherit;font:inherit;font-size:12px;cursor:pointer}
 .fi-btn:hover{background:var(--ui-hover,rgba(128,128,128,.15))}
@@ -992,7 +1099,7 @@ function injectStyle() {
 .fi-actions{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
 
 /* 浮层：右键后光标处弹出，不占工作区 */
-.fi-pop{position:fixed;z-index:9999;width:396px;max-height:min(72vh,540px);display:flex;flex-direction:column;
+.fi-pop{position:fixed;z-index:9999;width:472px;max-height:min(78vh,600px);display:flex;flex-direction:column;
   background:var(--ui-bg,var(--background-primary,#232326));color:var(--text-color,#ddd);
   border:1px solid var(--background-modifier-border,#3a3a3c);border-radius:10px;
   box-shadow:0 18px 48px rgba(0,0,0,.5);overflow:hidden;font-size:13px}
@@ -1059,6 +1166,9 @@ async function scanStale(keys, grid, host) {
 function mountIconPane(host, opts) {
   opts = opts || {};
   host.replaceChildren();
+  /* 全屏视图空间更大，格子和字号再放大一档（浮层用小一号） */
+  if (opts.compact) host.classList.remove("fi-wide");
+  else host.classList.add("fi-wide");
 
   /* 搜索行 */
   const top = h('div', 'fi-pane-top');
@@ -1111,7 +1221,7 @@ function mountIconPane(host, opts) {
       const rec = cfg.folders[p];
       const b = h('button', 'fi-cell');
       b.title = p;
-      b.appendChild(svgEl(rec.icon, 18));
+      b.appendChild(svgEl(rec.icon, opts.compact ? 22 : 26));
       b.appendChild(h('span', 'fi-name', baseOf(p)));
       b.addEventListener('click', () => {
         target = { path: p, name: baseOf(p) };
@@ -1169,7 +1279,7 @@ function mountIconPane(host, opts) {
         const b = h('button', 'fi-cell' + (name === selected ? ' on' : ''));
         b.dataset.name = name;
         b.title = name;
-        b.appendChild(svgEl(name, opts.compact ? 16 : 18));
+        b.appendChild(svgEl(name, opts.compact ? 22 : 26));
         b.appendChild(h('span', 'fi-name', name));
         b.addEventListener('click', () => applyIcon(name));
         frag.appendChild(b);
@@ -1439,39 +1549,81 @@ function paintRules(host) {
 /* ---------------- 数据页：把存储内容摊开 ---------------- */
 
 function snapshotJSON() {
-  return JSON.stringify({ v: 2, folders: cfg.folders, rules: cfg.rules }, null, 2);
+  return JSON.stringify(snapshotOf(), null, 2);
 }
 
-/** 导入：只接受形状正确且图标名真实存在的条目，其余跳过并计数 */
-function importCfg(text) {
-  let data;
-  try { data = JSON.parse(text); } catch (e) { return 'JSON 解析失败：' + (e && e.message ? e.message : e); }
-  if (!data || typeof data !== 'object' || Array.isArray(data)) return '顶层必须是一个对象';
-  const src = (data.folders && typeof data.folders === 'object' && !Array.isArray(data.folders)) ? data.folders : null;
-  if (!src) return '缺少 folders 字段';
-
+/** 校验并清洗一份 { folders, rules }；图标名必须真实存在，无效条目跳过计数 */
+function cleanPart(src, acc) {
   const folders = {};
-  let n = 0;
-  let skip = 0;
-  Object.keys(src).forEach((k) => {
+  Object.keys(src || {}).forEach((k) => {
     const p = normPath(k);
     const r = src[k];
-    if (!p || !r || typeof r !== 'object' || typeof r.icon !== 'string' || !LUCIDE[r.icon]) { skip++; return; }
+    if (!p || !r || typeof r !== 'object' || typeof r.icon !== 'string' || !LUCIDE[r.icon]) { acc.skip++; return; }
     const out = { icon: r.icon };
     if (typeof r.color === 'string' && r.color) out.color = r.color;
     if (typeof r.badge === 'string' && r.badge) out.badge = r.badge.slice(0, 3);
     folders[p] = out;
-    n++;
+    acc.n++;
   });
-  const rules = Array.isArray(data.rules)
-    ? data.rules.filter((r) => r && typeof r.p === 'string' && typeof r.icon === 'string' && LUCIDE[r.icon]).slice(0, 8)
-    : cfg.rules;
+  return folders;
+}
 
-  cfg.folders = folders;
-  cfg.rules = rules;
+function cleanRules(list, fallback) {
+  if (!Array.isArray(list)) return fallback;
+  return list.filter((r) => r && typeof r.p === 'string' && typeof r.icon === 'string' && LUCIDE[r.icon]).slice(0, 8);
+}
+
+/**
+ * 导入：认识两种形状。
+ *   v3 { byWs: { 库: {folders, rules} }, last }  → 整份覆盖（多库备份的还原）
+ *   v2 { folders, rules }                       → 只覆盖当前库
+ * 图标名不存在的条目一律丢弃并计数，不写脏数据。
+ */
+function importCfg(text, only) {
+  let data;
+  try { data = JSON.parse(text); } catch (e) { return 'JSON 解析失败：' + (e && e.message ? e.message : e); }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return '顶层必须是一个对象';
+
+  const acc = { n: 0, skip: 0 };
+
+  /* only：这份数据属于「当前库」，只覆盖当前库那一份，别动别的库 */
+  if (only) {
+    let one = data;
+    if (data.byWs && typeof data.byWs === 'object' && !Array.isArray(data.byWs)) {
+      one = (data.last && data.byWs[data.last]) || Object.values(data.byWs)[0] || {};
+    }
+    if (!one || typeof one !== 'object') return '备份里没有可用的数据';
+    cfg.folders = cleanPart(one.folders, acc);
+    cfg.rules = cleanRules(one.rules, cfg.rules);
+    reindex();
+    regexCache.clear();
+    return { n: acc.n, skip: acc.skip, rules: cfg.rules.length };
+  }
+
+  if (data.byWs && typeof data.byWs === 'object' && !Array.isArray(data.byWs)) {
+    const ks = Object.keys(data.byWs);
+    if (!ks.length) return '备份里没有任何库的数据';
+    const next = {};
+    for (let i = 0; i < ks.length; i++) {
+      const p = data.byWs[ks[i]];
+      if (!p || typeof p !== 'object') continue;
+      next[ks[i]] = {
+        folders: cleanPart(p.folders, acc),
+        rules: cleanRules(p.rules, []),
+      };
+    }
+    byWs = next;
+    legacyPending = false;
+    activateWs(data.last && next[wsKeyOf(data.last)] ? data.last : Object.keys(next)[0]);
+  } else {
+    if (!data.folders || typeof data.folders !== 'object' || Array.isArray(data.folders)) return '缺少 folders 字段';
+    cfg.folders = cleanPart(data.folders, acc);
+    cfg.rules = cleanRules(data.rules, cfg.rules);
+  }
+
   reindex();
   regexCache.clear();
-  return { n: n, skip: skip, rules: rules.length };
+  return { n: acc.n, skip: acc.skip, rules: cfg.rules.length };
 }
 
 function paintData(host) {
@@ -1482,7 +1634,7 @@ function paintData(host) {
 
   host.appendChild(h('div', 'fi-hint',
     '这里就是你的全部图标设置：哪个文件夹配哪个图标，以及按名称自动配的规则。'
-    + '换电脑或重装插件之前，建议先导出一份。'));
+    + '下面显示的是当前这个笔记库的配置，备份时会带上所有库。换电脑或重装插件之前，建议先导出一份。'));
 
   /* 概览 */
   const sum = h('div', 'fi-sum');
@@ -1491,6 +1643,24 @@ function paintData(host) {
   sum.appendChild(h('span', 'fi-sum-n', String(nRule)));
   sum.appendChild(h('span', 'fi-label', '条名称规则'));
   host.appendChild(sum);
+
+  /* 记忆范围：多库用户最关心「换个库会不会串」 */
+  const wsCount = Object.keys(byWs).length;
+  const wsBox = h('div', 'fi-store');
+  wsBox.appendChild(h('div', 'fi-store-title', '记忆范围'));
+  let wsDesc;
+  if (storeMode === 'vault') {
+    wsDesc = '每个笔记库的根目录各有一份配置，换库自动换一份，互不影响。';
+  } else if (wsDiag.entryWs === true) {
+    wsDesc = '按笔记库分开记，已记下 ' + wsCount + ' 个库（当前：' + currentWs + '）。';
+  } else if (wsDiag.entryWs === false) {
+    wsDesc = '当前客户端没告诉插件「这是哪个库」，多个库可能共用一份设置——'
+      + '两边有同名文件夹时会串用图标。要彻底分开，请把存储位置改成「库内文件」。';
+  } else {
+    wsDesc = '还没在文件树上渲染过，暂时无法判断按库隔离是否生效。已记下 ' + wsCount + ' 个库。';
+  }
+  wsBox.appendChild(h('div', 'fi-store-desc', wsDesc));
+  host.appendChild(wsBox);
 
   /* 存储位置 */
   const box = h('div', 'fi-store');
@@ -1534,7 +1704,7 @@ function paintData(host) {
   const toVault = h('button', 'fi-btn', '存到库根目录');
   toVault.title = '写一份到 ' + VAULT_FILE + '，不改当前的存储位置';
   toVault.addEventListener('click', async () => {
-    const ok = await writeVaultCfg(snapshotOf());
+    const ok = await writeVaultCfg(vaultSnapshot());
     if (ok) C.ui.notice('已保存到库根目录：' + VAULT_FILE);
   });
   bar.appendChild(toVault);
@@ -1593,7 +1763,7 @@ function paintData(host) {
   fromFile.addEventListener('click', async () => {
     const data = await readVaultCfg();
     if (!data) { C.ui.notice('库根目录里没有 ' + VAULT_FILE, { kind: 'error' }); return; }
-    const res = importCfg(JSON.stringify(data));
+    const res = importCfg(JSON.stringify(data), true);   // 库里的文件只属于这个库
     if (typeof res === 'string') { C.ui.notice(res, { kind: 'error' }); return; }
     await saveCfg();
     refreshTree();
@@ -1769,6 +1939,7 @@ module.exports = {
       when: 'folder',
       run(t) {
         if (!t || !t.path) return;
+        if (t.workspaceId) switchWs(t.workspaceId);
         openPopover(t.path, t.name);
       },
     });
@@ -1777,8 +1948,13 @@ module.exports = {
       label: '清除文件夹图标',
       icon: 'folder-x',
       when: 'folder',
-      enabled: (t) => !!(t && getRec(t.path)),
+      enabled: (t) => {
+        if (!t || !t.path) return false;
+        return !!(getRec(t.path) || (t.workspaceId && byWs[wsKeyOf(t.workspaceId)]
+          && byWs[wsKeyOf(t.workspaceId)].folders[normPath(t.path)]));
+      },
       async run(t) {
+        if (t.workspaceId) switchWs(t.workspaceId);
         delRec(t.path);
         await saveCfg();
         refreshTree();
@@ -1790,7 +1966,10 @@ module.exports = {
       label: '文件夹图标总览',
       icon: 'folder-tree',
       when: 'any',
-      run() { openView('icons'); },
+      run(t) {
+        if (t && t.workspaceId) switchWs(t.workspaceId);
+        openView('icons');
+      },
     });
 
     /* 命令 */
